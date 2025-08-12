@@ -290,8 +290,27 @@ class UnifiedJailGuardEvaluator:
         recall = recall_score(y_true, y_pred_binary, zero_division=0)
         f1 = f1_score(y_true, y_pred_binary, zero_division=0)
         
-        # Confusion matrix
-        tn, fp, fn, tp = confusion_matrix(y_true, y_pred_binary).ravel()
+        # Confusion matrix - handle edge cases
+        cm = confusion_matrix(y_true, y_pred_binary)
+        if cm.size == 1:
+            # Handle case where only one class is present
+            unique_true = set(y_true)
+            unique_pred = set(y_pred_binary)
+            if len(unique_true) == 1 and len(unique_pred) == 1:
+                true_label = list(unique_true)[0]
+                pred_label = list(unique_pred)[0]
+                if true_label == 1 and pred_label == 1:
+                    tn, fp, fn, tp = 0, 0, 0, cm[0, 0]  # All true positives
+                elif true_label == 0 and pred_label == 0:
+                    tn, fp, fn, tp = cm[0, 0], 0, 0, 0  # All true negatives
+                elif true_label == 1 and pred_label == 0:
+                    tn, fp, fn, tp = 0, 0, cm[0, 0], 0  # All false negatives
+                else:  # true_label == 0 and pred_label == 1
+                    tn, fp, fn, tp = 0, cm[0, 0], 0, 0  # All false positives
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+        else:
+            tn, fp, fn, tp = cm.ravel()
         
         # Rates
         tpr = tp / (tp + fn) if (tp + fn) > 0 else 0  # True Positive Rate (Sensitivity/Recall)
