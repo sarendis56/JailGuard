@@ -145,10 +145,23 @@ def find_index(L, b):
 def policy_aug_text(text_list,level='0.24-0.52-0.24',pool='PI-TI-TL'):
     mutator_list=[text_aug_dict[_mut] for _mut in pool.split('-')]
     probability_list=[float(_value) for _value in level.split('-')]
-    probability_list=[sum(probability_list[:i]) for i in range(len(level))]
+    
+    # Create cumulative probabilities correctly
+    cumulative_probs = []
+    cumsum = 0
+    for prob in probability_list:
+        cumsum += prob
+        cumulative_probs.append(cumsum)
+    
     randnum=np.random.random()
-    index=find_index(probability_list,randnum)
-    print(index,randnum)
+    # Find which range the random number falls into
+    index = 0
+    for i, cum_prob in enumerate(cumulative_probs):
+        if randnum <= cum_prob:
+            index = i
+            break
+    
+    print(f"Selected mutator {index} with random {randnum:.3f} from cumulative probs {cumulative_probs}")
     output_list=mutator_list[index](text_list)
     return output_list
 

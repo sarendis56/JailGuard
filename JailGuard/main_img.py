@@ -33,7 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--variant_save_dir', default='../demo_case/variant', type=str, help='dir to save the modify results')
     parser.add_argument('--response_save_dir', default='../demo_case/response', type=str, help='dir to save the modify results')
     parser.add_argument('--number', default='8', type=str, help='number of generated variants')
-    parser.add_argument('--threshold', default=0.025, type=str, help='Threshold of divergence')
+    parser.add_argument('--threshold', default=0.025, type=float, help='Threshold of divergence')
     args = parser.parse_args()
 
     number=int(args.number)
@@ -49,6 +49,12 @@ if __name__ == '__main__':
     if not os.path.exists(image_path):
         image_path=os.path.join(data_path,'image.jpg')
     for i in range(number):
+        # Check if we already have enough variants (excluding question file)
+        existing_variants = [f for f in os.listdir(target_dir) 
+                           if f.endswith(('.bmp', '.jpg', '.png', '.jpeg'))]
+        if len(existing_variants) >= number:
+            break  # We have enough variants
+            
         tmp_method=get_method(args.mutator)
         pil_img = Image.open(image_path)
         new_image=tmp_method(img=pil_img)
@@ -58,9 +64,7 @@ if __name__ == '__main__':
             target_path = os.path.join(target_dir,str(i)+f'-{args.mutator}.bmp')
         else:
             target_path = os.path.join(target_dir,str(i)+f'-{args.mutator}.jpg')
-        if len(os.listdir(target_dir))>=number+1:
-            break # early stop
-        # cv2.imwrite()
+        
         # creating a image object (main image)  
         new_image.save(target_path)
         target_question_path=os.path.join(target_dir,'question')
@@ -79,22 +83,28 @@ if __name__ == '__main__':
     new_save_dir=args.response_save_dir
     if not os.path.exists(new_save_dir):
         os.makedirs(new_save_dir)
-    for j in range(len(variant_list)):
-        img_prompt_path=variant_list[j]
-        prompts_eval=[question,img_prompt_path]
-        # read_file_in_line(mask_file_list[i])
-        save_name=name_list[j].split('.')[0]
-        existing_response=[i for i in os.listdir(new_save_dir) if'.png' not in i]
-        if len(existing_response)>=number:
-            continue
-        new_save_path=os.path.join(new_save_dir,save_name)
-        if not os.path.exists(new_save_path):
-
-            result = model_inference(vis_processor,chat,model,prompts_eval)
-
-            f=open(new_save_path,'w')
-            f.writelines(result)
-            f.close()
+    
+    # Check existing responses before starting (exclude .png files and other artifacts)
+    existing_responses = [f for f in os.listdir(new_save_dir) 
+                         if not f.endswith(('.png', '.pkl', '.txt', '.jpg', '.bmp'))]
+    
+    if len(existing_responses) >= number:
+        print(f"Already have {len(existing_responses)} responses, skipping generation")
+    else:
+        # Generate only missing responses
+        start_idx = len(existing_responses)
+        for j in range(start_idx, min(len(variant_list), number)):
+            img_prompt_path=variant_list[j]
+            prompts_eval=[question,img_prompt_path]
+            # read_file_in_line(mask_file_list[i])
+            save_name=name_list[j].split('.')[0]
+            new_save_path=os.path.join(new_save_dir,save_name)
+            if not os.path.exists(new_save_path):
+                result = model_inference(vis_processor,chat,model,prompts_eval)
+                
+                f=open(new_save_path,'w')
+                f.writelines(result)
+                f.close()
 
     # Step3: divergence & detect
     diver_save_path=os.path.join(args.response_save_dir,f'diver_result-{args.number}.pkl')

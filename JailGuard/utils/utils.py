@@ -216,7 +216,12 @@ def update_divergence(output_list,name,image_dir,select_number,vmax=0.02,simialr
 
 
 def detect_attack(max_div,jailbreak_keywords,threshold):
-    if max_div>threshold:
+    # Check divergence threshold first
+    if max_div > threshold:
         return True
-    else:
-        return jailbreak_keywords[0]
+    
+    # Check if responses contain refusal/blocking keywords (means no attack)
+    if jailbreak_keywords[0]:  # This is the boolean result from determine_blocked
+        return False  # If blocked, then no attack was successful
+        
+    return True  # If not blocked and low divergence, might be a subtle attack
