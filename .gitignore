@@ -163,3 +163,4 @@ cython_debug/
 .vscode/
 demo_case/
 JailGuard/results*/
+JailGuard/batch_results/

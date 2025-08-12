@@ -123,14 +123,21 @@ def create_summary_report(all_results, output_dir):
                       f"TPR:{row['tpr']:.3f} | FPR:{row['fpr']:.3f} | "
                       f"Time:{row['runtime_min']:.1f}min")
             
-            # Best performers
+            # Best performers (handle NaN values)
             best_acc = modal_df.loc[modal_df['accuracy'].idxmax()]
             best_f1 = modal_df.loc[modal_df['f1_score'].idxmax()]
-            best_auc = modal_df.loc[modal_df['roc_auc'].idxmax()]
             
-            print(f"\nBest Accuracy:  {best_acc['mutator']} ({best_acc['accuracy']:.4f})")
-            print(f"Best F1 Score:  {best_f1['mutator']} ({best_f1['f1_score']:.4f})")
-            print(f"Best ROC AUC:   {best_auc['mutator']} ({best_auc['roc_auc']:.4f})")
+            # Handle NaN ROC AUC values
+            valid_auc = modal_df.dropna(subset=['roc_auc'])
+            if len(valid_auc) > 0:
+                best_auc = valid_auc.loc[valid_auc['roc_auc'].idxmax()]
+                print(f"\nBest Accuracy:  {best_acc['mutator']} ({best_acc['accuracy']:.4f})")
+                print(f"Best F1 Score:  {best_f1['mutator']} ({best_f1['f1_score']:.4f})")
+                print(f"Best ROC AUC:   {best_auc['mutator']} ({best_auc['roc_auc']:.4f})")
+            else:
+                print(f"\nBest Accuracy:  {best_acc['mutator']} ({best_acc['accuracy']:.4f})")
+                print(f"Best F1 Score:  {best_f1['mutator']} ({best_f1['f1_score']:.4f})")
+                print(f"Best ROC AUC:   N/A (all values undefined)")
     
     print(f"\nDetailed results saved to:")
     print(f"  Summary: {summary_file}")
