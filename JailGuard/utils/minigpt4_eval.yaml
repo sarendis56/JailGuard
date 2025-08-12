@@ -1,14 +1,11 @@
 model:
-  arch: mini_gpt4
-  model_type: pretrain_vicuna
-  freeze_vit: True
-  freeze_qformer: True
+  arch: minigpt4
+  model_type: pretrain_vicuna0
   max_txt_len: 160
   end_sym: "###"
   low_resource: True
-  prompt_path: ""
   prompt_template: '###Human: {} ###Assistant: '
-  ckpt: '...your_pretrained_minigpt4.pth'
+  ckpt: '/home/server2/pchua/JailGuard/model/prerained_minigpt4_7b.pth'
 
 
 datasets:
