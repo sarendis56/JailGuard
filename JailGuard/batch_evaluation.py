@@ -29,20 +29,48 @@ def run_evaluation(modality, mutator, start_idx, end_idx, threshold, number, qui
     if quiet:
         cmd.append('--quiet')
     
-    print(f"Running: {modality} | {mutator} | samples {start_idx}-{end_idx}")
+    print(f"🚀 Running: {modality} | {mutator} | samples {start_idx}-{end_idx}")
+    if not quiet:
+        print(f"📝 Command: {' '.join(cmd)}")
     
     start_time = time.time()
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    end_time = time.time()
     
-    if result.returncode != 0:
-        print(f"ERROR in {modality}/{mutator}: {result.stderr}")
+    if not quiet:
+        # Run with real-time output for better monitoring
+        print("📊 Real-time progress:")
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                 text=True, bufsize=1, universal_newlines=True)
+        
+        stdout_lines = []
+        for line in process.stdout:
+            print(f"   {line.rstrip()}")  # Prefix with spaces for clarity
+            stdout_lines.append(line)
+        
+        process.wait()
+        result_stdout = ''.join(stdout_lines)
+        result_stderr = ""
+        returncode = process.returncode
+    else:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        result_stdout = result.stdout
+        result_stderr = result.stderr
+        returncode = result.returncode
+    
+    end_time = time.time()
+    duration = end_time - start_time
+    
+    if returncode != 0:
+        print(f"❌ ERROR in {modality}/{mutator} after {duration:.1f}s: {result_stderr if 'result_stderr' in locals() else 'Unknown error'}")
         return None
+    else:
+        print(f"✅ Completed in {duration:.1f}s ({duration/60:.1f} minutes)")
+    
+    # Use the collected stdout
+    stdout_lines = result_stdout.strip().split('\n') if 'result_stdout' in locals() else []
     
     # Parse metrics from output
     try:
         # Find the results directory from stdout
-        stdout_lines = result.stdout.strip().split('\n')
         results_dir = None
         for line in stdout_lines:
             if 'Detailed results saved to:' in line:
@@ -164,7 +192,7 @@ def main():
                         help='Start index for evaluation')
     parser.add_argument('--end_idx', type=int, default=99,
                         help='End index for evaluation')
-    parser.add_argument('--batch_size', type=int, default=100,
+    parser.add_argument('--batch_size', type=int, default=50,
                         help='Batch size for processing (split large ranges)')
     
     # Parameters

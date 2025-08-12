@@ -94,16 +94,20 @@ def get_divergence(similarity_matrix,i,j,mode='KL'):
     return divergence
 
 def visualize(divergence_matrix,save_path,vmax):
-    # Create a heatmap
-    plt.figure(figsize=(8, 8))
-    norm=matplotlib.colors.Normalize(vmin=0,vmax=vmax)
-    plt.imshow(divergence_matrix, cmap='viridis', interpolation='nearest',norm=norm)
-    plt.colorbar(label='Divergence')
+    # Create a heatmap with proper memory management
+    fig, ax = plt.subplots(figsize=(8, 8))
+    try:
+        norm=matplotlib.colors.Normalize(vmin=0,vmax=vmax)
+        im = ax.imshow(divergence_matrix, cmap='viridis', interpolation='nearest',norm=norm)
+        plt.colorbar(im, label='Divergence')
 
-    plt.title('Divergence Matrix Heatmap')
-    plt.xticks(range(divergence_matrix.shape[0]))
-    plt.yticks(range(divergence_matrix.shape[0]))
+        ax.set_title('Divergence Matrix Heatmap')
+        ax.set_xticks(range(divergence_matrix.shape[0]))
+        ax.set_yticks(range(divergence_matrix.shape[0]))
 
-    # Save the heatmap as an image file (e.g., PNG)
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-
+        # Save the heatmap as an image file (e.g., PNG)
+        plt.savefig(save_path, dpi=100, bbox_inches='tight')  # Reduced DPI for memory
+    finally:
+        # Ensure the figure is always closed to prevent memory leaks
+        plt.close(fig)
+        plt.close('all')  # Close any remaining figures

@@ -215,13 +215,23 @@ def update_divergence(output_list,name,image_dir,select_number,vmax=0.02,simialr
     return result_dict['max_div'],result_dict['all_block']
 
 
-def detect_attack(max_div,jailbreak_keywords,threshold):
-    # Check divergence threshold first
-    if max_div > threshold:
-        return True
+def detect_attack(max_div, jailbreak_keywords, threshold):
+    """
+    Detect if an attack was successful based on response divergence.
     
-    # Check if responses contain refusal/blocking keywords (means no attack)
-    if jailbreak_keywords[0]:  # This is the boolean result from determine_blocked
-        return False  # If blocked, then no attack was successful
+    Logic:
+    - High divergence (> threshold) = Attack detected (responses vary significantly)
+    - Low divergence (< threshold) = No attack detected (responses are consistent)
+    - Blocking keywords are less reliable for MiniGPT-4, so we rely primarily on divergence
+    """
+    
+    # Primary detection: divergence-based
+    if max_div > threshold:
+        return True  # High divergence indicates attack success
+    
+    # Secondary check: if model explicitly refused (though rare in MiniGPT-4)
+    if jailbreak_keywords[0]:  # All responses contained refusal keywords
+        return False  # Model refused = no successful attack
         
-    return True  # If not blocked and low divergence, might be a subtle attack
+    # Low divergence + no explicit refusal = likely benign/unsuccessful attack
+    return False
