@@ -1,6 +1,6 @@
 import argparse
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"]="2"
+# GPU will be set in main script before imports
 import random
 
 import numpy as np
@@ -8,11 +8,11 @@ import torch
 import torch.backends.cudnn as cudnn
 import gradio as gr
 import sys
-sys.path.append('YOUR MINIGPT4 DIR')
+sys.path.append('/home/server2/pchua/JailGuard/MiniGPT-4')  # Update this path
 from minigpt4.common.config import Config
 from minigpt4.common.dist_utils import get_rank
 from minigpt4.common.registry import registry
-from minigpt4.conversation.conversation import Chat, CONV_VISION
+from minigpt4.conversation.conversation import Chat, CONV_VISION_Vicuna0
 
 from PIL import Image
 
@@ -102,20 +102,15 @@ def filter_dirs(mask_dir_list,method_list,max=20):
 
 def initialize_model():
     print('Initializing Chat')
-    # args = parse_args()
-    parser = argparse.ArgumentParser(description="Demo")
-    parser.add_argument("--cfg_path", default='./utils/minigpt4_eval.yaml', help="path to configuration file. refer to https://github.com/Unispac/Visual-Adversarial-Examples-Jailbreak-Large-Language-Models/blob/main/minigpt_inference.py")
-    parser.add_argument(
-        "--options",
-        nargs="+",
-        help="override some settings in the used config, the key-value pair "
-        "in xxx=yyy format will be merged into config file (deprecate), "
-        "change to --cfg-options instead.",
-    )
-    parser.add_argument("--gpu_id", type=str, default='0', help="specify the gpu to load the model.")
-    args = parser.parse_args()
+    # Create a simple args object with default values instead of parsing command line
+    class Args:
+        def __init__(self):
+            self.cfg_path = './utils/minigpt4_eval.yaml'
+            self.options = None
+            self.gpu_id = '0'  # This will be GPU 1 due to CUDA_VISIBLE_DEVICES=1
+    
+    args = Args()
     cfg = Config(args)
-    os.environ["CUDA_VISIBLE_DEVICES"]=f'{args.gpu_id}'
     model_config = cfg.model_cfg
     model_config.device_8bit = 0
     model_cls = registry.get_model_class(model_config.arch)
@@ -134,7 +129,7 @@ def initialize_model():
 def model_inference(vis_processor,chat,model,prompts_eval):
     # init chat state
     def upload_img(img):
-        chat_state = CONV_VISION.copy()
+        chat_state = CONV_VISION_Vicuna0.copy()
         img_list = []
         chat.upload_img(img, chat_state, img_list)
         return chat_state, img_list
@@ -146,6 +141,10 @@ def model_inference(vis_processor,chat,model,prompts_eval):
 
 
     def answer(chat_state, img_list, num_beams=1, temperature=1.0):
+        # Encode images before generating answer
+        if img_list and len(img_list) > 0:
+            chat.encode_img(img_list)
+        
         llm_message  = chat.answer(conv=chat_state,
                                 img_list=img_list,
                                 num_beams=num_beams,
@@ -157,7 +156,6 @@ def model_inference(vis_processor,chat,model,prompts_eval):
     image_path=prompts_eval[1]
     question=prompts_eval[0]
     img = Image.open(image_path).convert('RGB')
-    img = vis_processor(img).unsqueeze(0).to(model.device)
     chat_state, img_list = upload_img(img)
 
     chat_state = ask(question, chat_state)

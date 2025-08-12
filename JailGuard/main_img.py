@@ -1,6 +1,6 @@
 import argparse
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="3"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"  # Set GPU 1 before any CUDA imports
 import sys
 sys.path.append('./utils')
 from utils import *
@@ -30,8 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('--mutator', default='PL', type=str, help='Horizontal Flip(HF),Vertical Flip(VF),Random Rotation(RR),Crop and Resize(CR),Random Mask(RM),Random Solarization(RS),Random Grayscale(GR),Gaussian Blur(BL), Colorjitter(CJ), Random Posterization(RP) Policy(PL)')
     parser.add_argument('--serial_num', default='287', type=str, help='the serial number of the data under test in the dataset')
     parser.add_argument('--path', default='../dataset/image/dataset', type=str, help='dataset path')
-    parser.add_argument('--variant_save_dir', default='./demo_case/variant', type=str, help='dir to save the modify results')
-    parser.add_argument('--response_save_dir', default='./demo_case/response', type=str, help='dir to save the modify results')
+    parser.add_argument('--variant_save_dir', default='../demo_case/variant', type=str, help='dir to save the modify results')
+    parser.add_argument('--response_save_dir', default='../demo_case/response', type=str, help='dir to save the modify results')
     parser.add_argument('--number', default='8', type=str, help='number of generated variants')
     parser.add_argument('--threshold', default=0.025, type=str, help='Threshold of divergence')
     args = parser.parse_args()
