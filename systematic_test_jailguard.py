@@ -358,7 +358,7 @@ class JailGuardTester:
 
     def _test_text_sample(self, sample: Dict[str, Any], sample_id: str,
                          variant_dir: Path, response_dir: Path) -> TestResult:
-        """Test a text-only sample using JailGuard's pipeline with a blank image"""
+        """Test a text-only sample using text mutations (like main_txt.py) but with MiniGPT-4 inference"""
         text = sample.get('txt', '')
         if not text:
             raise ValueError("Sample has no text content")
@@ -374,86 +374,123 @@ class JailGuardTester:
             torch.cuda.empty_cache()
 
         try:
-            # Create a temporary dataset structure that main_img.py expects
-            temp_dataset_dir = variant_dir.parent / "temp_dataset"
-            temp_sample_dir = temp_dataset_dir / sample_id
-            temp_sample_dir.mkdir(parents=True, exist_ok=True)
+            # Step 1: Generate text variants using JailGuard's text mutation logic (like main_txt.py)
+            variant_dir.mkdir(parents=True, exist_ok=True)
 
-            # Create a blank white image for text-only processing
-            from PIL import Image
-            blank_img = Image.new('RGB', (224, 224), color='white')
-            temp_img_path = temp_sample_dir / "image.jpg"
-            blank_img.save(temp_img_path, 'JPEG', quality=95)
+            # Import text augmentation functions
+            sys.path.append('./JailGuard/utils')
+            from augmentations import text_aug_dict
 
-            # Save question to expected location
-            temp_question_path = temp_sample_dir / "question"
-            with open(temp_question_path, 'w', encoding='utf-8') as f:
-                f.write(text)
+            # Get the text mutation method (same as main_txt.py line 55)
+            if self.config.mutator not in text_aug_dict:
+                raise ValueError(f"Unknown text mutator: {self.config.mutator}")
 
-            # Call main_img.py with the exact same logic as multimodal samples
-            import subprocess
-            cmd = [
-                sys.executable, "main_img.py",
-                "--serial_num", sample_id,
-                "--path", str(temp_dataset_dir),
-                "--variant_save_dir", str(variant_dir),
-                "--response_save_dir", str(response_dir),
-                "--number", str(self.config.num_variants),
-                "--threshold", str(self.config.threshold),
-                "--mutator", self.config.mutator
-            ]
+            tmp_method = text_aug_dict[self.config.mutator]
 
-            # Change to JailGuard directory and run
+            # Generate text variants (same as main_txt.py line 67)
+            text_variants = []
+            for i in range(self.config.num_variants):
+                try:
+                    # Apply text mutation to create variant
+                    variant_result = tmp_method(text_list=[text])
+                    if isinstance(variant_result, list):
+                        variant_text = ''.join(variant_result).strip()
+                    else:
+                        variant_text = str(variant_result).strip()
+
+                    # Save variant to file (same format as main_txt.py)
+                    import uuid
+                    variant_filename = f"{str(uuid.uuid4())[:6]}-{self.config.mutator}"
+                    variant_path = variant_dir / variant_filename
+                    with open(variant_path, 'w', encoding='utf-8') as f:
+                        f.write(variant_text)
+
+                    text_variants.append(variant_text)
+                    print(f"Generated text variant {i+1}: {variant_text[:50]}...")
+
+                except Exception as e:
+                    print(f"Warning: Failed to generate text variant {i}: {e}")
+                    # Fallback to original text
+                    text_variants.append(text)
+
+            # Step 2: Get responses using MiniGPT-4 with blank images (keep current approach)
+            response_dir.mkdir(parents=True, exist_ok=True)
+
+            # Initialize MiniGPT-4 model
+            sys.path.append('./JailGuard/utils')
+            from minigpt_utils import initialize_model, model_inference
+
+            # Change to JailGuard directory for proper initialization
             original_cwd = os.getcwd()
             jailguard_dir = os.path.join(original_cwd, 'JailGuard')
+            os.chdir(jailguard_dir)
 
-            result = subprocess.run(
-                cmd,
-                cwd=jailguard_dir,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
+            try:
+                vis_processor, chat, model = initialize_model()
+            finally:
+                # Change back to original directory
+                os.chdir(original_cwd)
+
+            # Create a temporary blank image file for all variants
+            from PIL import Image
+            import tempfile
+            blank_img = Image.new('RGB', (224, 224), color='white')
+            temp_img_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            blank_img.save(temp_img_file.name, 'JPEG')
+            temp_img_path = temp_img_file.name
+            temp_img_file.close()
+
+            responses = []
+            for i, variant_text in enumerate(text_variants):
+                try:
+                    # Use MiniGPT-4 to get response
+                    prompts_eval = [variant_text, temp_img_path]  # [question, image_path]
+                    response = model_inference(vis_processor, chat, model, prompts_eval)
+
+                    # Save response
+                    response_filename = f"{i}-{self.config.mutator}"
+                    response_path = response_dir / response_filename
+                    with open(response_path, 'w', encoding='utf-8') as f:
+                        f.write(response)
+
+                    responses.append(response)
+                    print(f"Got response {i+1}: {response[:50]}...")
+
+                except Exception as e:
+                    print(f"Warning: Failed to get response for variant {i}: {e}")
+                    responses.append("Error: No response generated")
+
+            # Clean up temporary image file
+            try:
+                os.unlink(temp_img_path)
+            except:
+                pass
+
+            # Step 3: Calculate divergence (same as main_img.py)
+            sys.path.append('./JailGuard/utils')
+            from utils import update_divergence, detect_attack
+            import spacy
+
+            metric = spacy.load("en_core_web_md")
+            max_div, jailbreak_keywords = update_divergence(
+                responses, sample_id, str(response_dir),
+                select_number=len(responses), metric=metric, top_string=500
             )
 
-            if result.returncode != 0:
-                raise RuntimeError(f"main_img.py failed with return code {result.returncode}: {result.stderr}")
+            # Save divergence results
+            divergence_results = {
+                'max_divergence': float(max_div),
+                'jailbreak_keywords': jailbreak_keywords,
+                'threshold': self.config.threshold,
+                'num_responses': len(responses)
+            }
+            diver_save_path = response_dir / f'diver_result-{len(responses)}.pkl'
+            import pickle
+            with open(diver_save_path, 'wb') as f:
+                pickle.dump(divergence_results, f)
 
-            # Parse the output to get detection result
-            detection_result = "Attack Query" in result.stdout
-
-            # Read the generated responses to calculate metrics
-            responses = []
-            if response_dir.exists():
-                for response_file in response_dir.glob("*"):
-                    if (response_file.is_file() and
-                        not response_file.name.startswith("diver_result-") and
-                        not response_file.suffix.lower() in ['.png', '.jpg', '.jpeg', '.bmp', '.pkl']):
-                        try:
-                            with open(response_file, 'r', encoding='utf-8') as f:
-                                responses.append(f.read())
-                        except UnicodeDecodeError:
-                            print(f"Warning: Could not decode file {response_file} as UTF-8, skipping")
-                            continue
-
-            # Extract divergence info from pickle files saved by main_img.py
-            max_div = 0.0
-            jailbreak_keywords = []
-
-            # Look for divergence results pickle file
-            divergence_files = list(response_dir.glob("diver_result-*.pkl"))
-            if divergence_files:
-                try:
-                    import pickle
-                    with open(divergence_files[0], 'rb') as f:
-                        divergence_data = pickle.load(f)
-                    max_div = divergence_data.get('max_divergence', 0.0)
-                    jailbreak_keywords = divergence_data.get('jailbreak_keywords', [])
-                except Exception as e:
-                    print(f"Warning: Could not load divergence data: {e}")
-
-            # Count variants and responses
-            num_variants = len(list(variant_dir.glob("*-*.jpg"))) + len(list(variant_dir.glob("*-*.bmp")))
-            num_responses = len(responses)
+            # Detect attack
+            detection_result = detect_attack(max_div, jailbreak_keywords, self.config.threshold)
 
             return TestResult(
                 sample_id=sample_id,
@@ -463,17 +500,13 @@ class JailGuardTester:
                 max_divergence=max_div,
                 jailbreak_keywords=jailbreak_keywords,
                 processing_time=0.0,  # Will be set by caller
-                num_variants_generated=num_variants,
-                num_responses_collected=num_responses
+                num_variants_generated=len(text_variants),
+                num_responses_collected=len(responses)
             )
 
         except Exception as e:
             print(f"Error in text-only test: {e}")
             raise
-        finally:
-            # Clean up temp dataset
-            if 'temp_dataset_dir' in locals() and temp_dataset_dir.exists():
-                shutil.rmtree(temp_dataset_dir, ignore_errors=True)
 
     def _test_multimodal_sample(self, sample: Dict[str, Any], sample_id: str,
                                variant_dir: Path, response_dir: Path) -> TestResult:
