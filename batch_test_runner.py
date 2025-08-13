@@ -101,8 +101,8 @@ def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, thr
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
-            timeout=3600  # 1 hour timeout per dataset
+            text=True
+            # No timeout - let it run as long as needed for large datasets
         )
         
         end_time = time.time()
@@ -177,10 +177,24 @@ def main():
     base_output_dir = Path(args.output_base_dir)
     base_output_dir.mkdir(exist_ok=True)
     
-    # Create timestamp for this batch run
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    batch_dir = base_output_dir / f"batch_{timestamp}"
-    batch_dir.mkdir(exist_ok=True)
+    # Handle resume vs new run
+    if args.resume:
+        # Find the most recent batch directory to resume from
+        existing_batch_dirs = list(base_output_dir.glob("batch_*"))
+        if existing_batch_dirs:
+            # Sort by name (which includes timestamp) and get the most recent
+            batch_dir = sorted(existing_batch_dirs)[-1]
+            print(f"🔄 Resuming from existing batch: {batch_dir.name}")
+        else:
+            print("⚠️  No existing batch found to resume from, starting new batch")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            batch_dir = base_output_dir / f"batch_{timestamp}"
+            batch_dir.mkdir(exist_ok=True)
+    else:
+        # Create new timestamped directory for fresh run
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        batch_dir = base_output_dir / f"batch_{timestamp}"
+        batch_dir.mkdir(exist_ok=True)
     
     print(f"🚀 Starting batch test run at {datetime.now()}")
     print(f"📁 Results will be saved to: {batch_dir}")
@@ -207,10 +221,31 @@ def main():
     for test_name, config in datasets_to_test.items():
         output_dir = batch_dir / f"test_{test_name}"
         
-        # Skip if resuming and results already exist
+        # Check if we should skip or resume this dataset
         if args.resume and output_dir.exists():
-            print(f"⏭️  Skipping {test_name} (results already exist)")
-            continue
+            # Check checkpoint to see actual progress
+            checkpoint_files = list(output_dir.glob("checkpoint_*.json"))
+            if checkpoint_files:
+                try:
+                    import json
+                    with open(checkpoint_files[0], 'r') as f:
+                        checkpoint_data = json.load(f)
+
+                    expected_samples = checkpoint_data.get('config', {}).get('max_samples', 0)
+                    completed_samples = len(checkpoint_data.get('results', []))
+
+                    if completed_samples >= expected_samples:
+                        print(f"⏭️  Skipping {test_name} (completed: {completed_samples}/{expected_samples})")
+                        continue
+                    else:
+                        print(f"🔄 Resuming {test_name} (completed: {completed_samples}/{expected_samples})")
+                        # Continue to run the test - it will resume from checkpoint
+                except Exception as e:
+                    print(f"⚠️  Could not read checkpoint for {test_name}: {e}")
+                    print(f"🔄 Running {test_name} anyway")
+            else:
+                print(f"⚠️  No checkpoint found for {test_name}, but directory exists")
+                print(f"🔄 Running {test_name} anyway")
         
         result = run_systematic_test(
             dataset_name=config["dataset_name"],
