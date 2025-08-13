@@ -160,6 +160,9 @@ def model_inference(vis_processor,chat,model,prompts_eval):
     img = vis_processor(img).unsqueeze(0).to(model.device)
     chat_state, img_list = upload_img(img)
 
+    # Encode the image to embeddings (this was missing!)
+    chat.encode_img(img_list)
+
     chat_state = ask(question, chat_state)
     llm_message, chat_state, img_list = answer(chat_state, img_list)
     return llm_message

@@ -162,5 +162,11 @@ cython_debug/
 #.idea/
 .vscode/
 
-JailGuard/demo_case/
-demo_case
+demo_case/
+*png
+data
+model
+our_code
+test*/
+*results/
+reference/

@@ -87,10 +87,16 @@ def get_similarity(s1,s2,method='spacy',misc=None):
 
 def get_divergence(similarity_matrix,i,j,mode='KL'):
     if mode=='KL':
-        # Calculate KL Divergence
+        # Calculate KL Divergence (original method - problematic for semantic differences)
         p = similarity_matrix[i] / np.sum(similarity_matrix[i])
         q = similarity_matrix[j] / np.sum(similarity_matrix[j])
         divergence = np.sum(p * np.log(p / q))
+    elif mode=='semantic':
+        # Calculate semantic divergence (1 - similarity) - more appropriate for response differences
+        divergence = 1.0 - similarity_matrix[i, j]
+    else:
+        # Default to semantic divergence
+        divergence = 1.0 - similarity_matrix[i, j]
     return divergence
 
 def visualize(divergence_matrix,save_path,vmax):
@@ -106,4 +112,3 @@ def visualize(divergence_matrix,save_path,vmax):
 
     # Save the heatmap as an image file (e.g., PNG)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-

@@ -14,3 +14,4 @@ torchtext==0.16.1
 torchvision==0.16.1
 peft=0.4.0
 accelerate=0.20.3
+pyarrow

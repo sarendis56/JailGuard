@@ -219,4 +219,8 @@ def detect_attack(max_div,jailbreak_keywords,threshold):
     if max_div>threshold:
         return True
     else:
-        return jailbreak_keywords[0]
+        # Handle case where jailbreak_keywords might be empty list or tuple
+        if isinstance(jailbreak_keywords, (list, tuple)) and len(jailbreak_keywords) > 0:
+            return jailbreak_keywords[0]
+        else:
+            return False  # Default to False if no keywords available

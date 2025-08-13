@@ -33,7 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--variant_save_dir', default='./demo_case/variant', type=str, help='dir to save the modify results')
     parser.add_argument('--response_save_dir', default='./demo_case/response', type=str, help='dir to save the modify results')
     parser.add_argument('--number', default='8', type=str, help='number of generated variants')
-    parser.add_argument('--threshold', default=0.025, type=str, help='Threshold of divergence')
+    parser.add_argument('--threshold', default=0.025, type=float, help='Threshold of divergence')
     args = parser.parse_args()
 
     number=int(args.number)
@@ -103,8 +103,18 @@ if __name__ == '__main__':
     check_list=os.listdir(avail_dir)
     check_list=[os.path.join(avail_dir,check) for check in check_list]
     output_list=read_file_list(check_list)
-    max_div,jailbreak_keywords=update_divergence(output_list,args.serial_num,avail_dir,select_number=number,metric=metric,top_string=100)
-    
+    max_div,jailbreak_keywords=update_divergence(output_list,args.serial_num,avail_dir,select_number=number,metric=metric,top_string=500)
+
+    # Save divergence results for systematic testing
+    divergence_results = {
+        'max_divergence': float(max_div),
+        'jailbreak_keywords': jailbreak_keywords,
+        'threshold': args.threshold,
+        'num_responses': len(output_list)
+    }
+    with open(diver_save_path, 'wb') as f:
+        pickle.dump(divergence_results, f)
+
     detection_result=detect_attack(max_div,jailbreak_keywords,args.threshold)
     if detection_result:
         print('The Input is a Attack Query!!')
