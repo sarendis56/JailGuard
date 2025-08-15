@@ -1,0 +1,58 @@
+# JailGuard Model Configuration
+# This file configures which multimodal model to use and model-specific settings
+
+# Default model to use: 'minigpt4' or 'llava'
+default_model: 'minigpt4'
+
+# MiniGPT-4 Configuration
+minigpt4:
+  # Path to MiniGPT-4 configuration file
+  config_path: './utils/minigpt4_eval.yaml'
+  # GPU ID to use
+  gpu_id: '0'
+
+# LLaVA Configuration
+llava:
+  # Model path - can be a HuggingFace model name or local path (null = auto-detect)
+  model_path: null
+  
+  # Base model path (for LoRA models, set to None for full models)
+  model_base: null
+  
+  # Conversation mode (auto-detected if null)
+  # Options: llava_v0, llava_v1, llava_llama_2, mistral_instruct, chatml_direct, mpt
+  conv_mode: null
+  
+  # Quantization options (enable to reduce memory usage)
+  load_8bit: true
+  load_4bit: false
+  
+  # Device to use
+  device: 'cuda'
+  
+  # Generation parameters
+  temperature: 1.0
+  max_new_tokens: 300
+  do_sample: false
+
+# Environment variable overrides
+# You can override these settings using environment variables:
+# - JAILGUARD_MODEL: 'minigpt4' or 'llava'
+# - LLAVA_MODEL_PATH: path to LLaVA model
+# - LLAVA_MODEL_BASE: base model for LoRA
+# - LLAVA_CONV_MODE: conversation mode
+# - LLAVA_LOAD_8BIT: 'true' or 'false'
+# - LLAVA_LOAD_4BIT: 'true' or 'false'
+# - LLAVA_DEVICE: device to use
+
+# Model fallback behavior
+# If the specified model is not available, the system will:
+# 1. Try to fall back to the other available model
+# 2. Print a warning message
+# 3. Raise an error if no models are available
+
+# Performance notes:
+# - MiniGPT-4: Generally faster initialization, established in JailGuard
+# - LLaVA: More recent architecture, potentially better performance
+# - 8-bit/4-bit quantization: Reduces memory usage but may affect quality
+# - Temperature 1.0: Deterministic generation for consistent results

@@ -62,15 +62,27 @@ except ImportError as e:
     print(f"⚠ JailGuard utilities not available: {e}")
     print("Some functionality may be limited")
 
-# Import MiniGPT-4
-MINIGPT4_AVAILABLE = False
+# Import unified model utilities (supports both MiniGPT-4 and LLaVA)
+MULTIMODAL_AVAILABLE = False
 try:
-    from JailGuard.utils.minigpt_utils import initialize_model, model_inference
-    MINIGPT4_AVAILABLE = True
-    print("✓ MiniGPT-4 utilities imported successfully")
+    from JailGuard.utils.unified_model_utils import initialize_model, model_inference, get_available_models
+    available_models = get_available_models()
+    if available_models.get('minigpt4', False) or available_models.get('llava', False):
+        MULTIMODAL_AVAILABLE = True
+        models_list = [k.upper() for k, v in available_models.items() if v]
+        print(f"✓ Multimodal utilities imported successfully (Available: {', '.join(models_list)})")
+    else:
+        print("⚠ No multimodal models available")
+        print("Multimodal testing will be disabled")
 except ImportError as e:
-    print(f"⚠ MiniGPT-4 not available: {e}")
-    print("Multimodal testing will be disabled")
+    # Fallback to original MiniGPT-4 utilities
+    try:
+        from JailGuard.utils.minigpt_utils import initialize_model, model_inference
+        MULTIMODAL_AVAILABLE = True
+        print("✓ MiniGPT-4 utilities imported successfully (fallback)")
+    except ImportError as e2:
+        print(f"⚠ No multimodal models available: {e2}")
+        print("Multimodal testing will be disabled")
 
 # Import spaCy (optional, only needed for divergence calculation)
 SPACY_AVAILABLE = False
@@ -91,10 +103,11 @@ class TestConfig:
     random_seed: int = 42
     filter_toxicity: Optional[int] = None  # Filter by toxicity: 0=safe, 1=unsafe, None=no filter
     
-    # JailGuard configuration  
+    # JailGuard configuration
     mutator: str = "PL"  # Policy (combination of multiple augmentations)
     num_variants: int = 8
     threshold: float = 0.025
+    model: Optional[str] = None  # Model to use: 'minigpt4', 'llava', or None for default
     
     # Output configuration
     output_dir: str = "systematic_test_results"
@@ -249,8 +262,8 @@ class JailGuardTester:
             print("⚠ SpaCy not available - text similarity calculations will be limited")
             self.spacy_model = None
 
-        # Initialize MiniGPT-4 for multimodal testing
-        if MINIGPT4_AVAILABLE:
+        # Initialize multimodal model for testing
+        if MULTIMODAL_AVAILABLE:
             try:
                 # Change to JailGuard directory temporarily for model initialization
                 original_cwd = os.getcwd()
@@ -260,14 +273,14 @@ class JailGuardTester:
                     os.chdir(jailguard_dir)
                     print(f"Changed to JailGuard directory: {jailguard_dir}")
 
-                self.vis_processor, self.chat, self.model = initialize_model()
-                print("✓ MiniGPT-4 model loaded")
+                self.vis_processor, self.chat, self.model = initialize_model(model_type=self.config.model)
+                print("✓ Multimodal model loaded")
 
                 # Change back to original directory
                 os.chdir(original_cwd)
 
             except Exception as e:
-                print(f"✗ Failed to load MiniGPT-4 model: {e}")
+                print(f"✗ Failed to load multimodal model: {e}")
                 print("Multimodal testing will not be available")
                 self.vis_processor = None
                 self.chat = None
@@ -278,7 +291,7 @@ class JailGuardTester:
                 except:
                     pass
         else:
-            print("⚠ MiniGPT-4 not available - multimodal testing will be disabled")
+            print("⚠ Multimodal models not available - multimodal testing will be disabled")
             self.vis_processor = None
             self.chat = None
             self.model = None
@@ -413,12 +426,16 @@ class JailGuardTester:
                     # Fallback to original text
                     text_variants.append(text)
 
-            # Step 2: Get responses using MiniGPT-4 with blank images (keep current approach)
+            # Step 2: Get responses using multimodal model with blank images (keep current approach)
             response_dir.mkdir(parents=True, exist_ok=True)
 
-            # Initialize MiniGPT-4 model
+            # Initialize multimodal model (use unified interface)
             sys.path.append('./JailGuard/utils')
-            from minigpt_utils import initialize_model, model_inference
+            try:
+                from unified_model_utils import initialize_model, model_inference
+            except ImportError:
+                # Fallback to original MiniGPT-4 utilities
+                from minigpt_utils import initialize_model, model_inference
 
             # Change to JailGuard directory for proper initialization
             original_cwd = os.getcwd()
@@ -426,7 +443,7 @@ class JailGuardTester:
             os.chdir(jailguard_dir)
 
             try:
-                vis_processor, chat, model = initialize_model()
+                vis_processor, chat, model = initialize_model(model_type=self.config.model)
             finally:
                 # Change back to original directory
                 os.chdir(original_cwd)
@@ -1063,6 +1080,10 @@ Examples:
     parser.add_argument('--output-format', choices=['json', 'csv'], default='json', help='Output format')
     parser.add_argument('--no-checkpoint', action='store_true', help='Disable checkpoint saving')
 
+    # Model options
+    parser.add_argument('--model', type=str, default=None, choices=['minigpt4', 'llava'],
+                       help='Model to use: minigpt4 or llava (default: from config)')
+
     args = parser.parse_args()
 
     # Handle special commands
@@ -1098,6 +1119,8 @@ Examples:
     if args.no_checkpoint:
         config.save_intermediate = False
         config.resume_from_checkpoint = False
+    if args.model:
+        config.model = args.model
 
     # Validate configuration
     if not config.dataset_name:

@@ -13,7 +13,14 @@ import pickle
 import spacy
 from PIL import Image
 import shutil
-from minigpt_utils import initialize_model, model_inference
+# Import unified model utilities for multi-model support
+try:
+    from unified_model_utils import initialize_model, model_inference
+    print("✓ Using unified model interface (supports MiniGPT-4 and LLaVA)")
+except ImportError:
+    # Fallback to original MiniGPT-4 utilities
+    from minigpt_utils import initialize_model, model_inference
+    print("✓ Using MiniGPT-4 interface")
 
 def get_method(method_name): 
     try:
@@ -34,6 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('--response_save_dir', default='./demo_case/response', type=str, help='dir to save the modify results')
     parser.add_argument('--number', default='8', type=str, help='number of generated variants')
     parser.add_argument('--threshold', default=0.025, type=float, help='Threshold of divergence')
+    parser.add_argument('--model', default=None, type=str, choices=['minigpt4', 'llava'],
+                       help='Model to use: minigpt4 or llava (default: from config)')
     args = parser.parse_args()
 
     number=int(args.number)
@@ -68,7 +77,7 @@ if __name__ == '__main__':
             shutil.copy(os.path.join(data_path,'question'),target_question_path)
 
     # Step2: query_model
-    vis_processor,chat,model=initialize_model()# initialize minigpt-4 model.refer to https://github.com/Unispac/Visual-Adversarial-Examples-Jailbreak-Large-Language-Models/blob/main/minigpt_inference.py
+    vis_processor,chat,model=initialize_model(model_type=args.model)# initialize model (MiniGPT-4 or LLaVA based on config)
 
     variant_list, name_list= load_mask_dir(target_dir)
     question_path=os.path.join(target_dir,'question')

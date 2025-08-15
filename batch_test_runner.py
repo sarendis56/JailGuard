@@ -70,7 +70,7 @@ TEST_CONFIGURATION = {
     }
 }
 
-def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, threshold=0.025, mutator="PL", filter_toxicity=None):
+def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, threshold=0.025, mutator="PL", filter_toxicity=None, model=None):
     """Run systematic test for a single dataset"""
     print(f"\n{'='*60}")
     print(f"Starting test: {dataset_name}")
@@ -94,6 +94,10 @@ def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, thr
     # Add toxicity filter if specified
     if filter_toxicity is not None:
         cmd.extend(["--filter-toxicity", str(filter_toxicity)])
+
+    # Add model selection if specified
+    if model is not None:
+        cmd.extend(["--model", model])
     
     start_time = time.time()
     
@@ -170,7 +174,9 @@ def main():
     parser.add_argument("--safe-only", action="store_true", help="Test only safe datasets")
     parser.add_argument("--unsafe-only", action="store_true", help="Test only unsafe datasets")
     parser.add_argument("--resume", action="store_true", help="Resume from existing results")
-    
+    parser.add_argument("--model", type=str, default=None, choices=['minigpt4', 'llava'],
+                       help="Model to use: minigpt4 or llava (default: from config)")
+
     args = parser.parse_args()
     
     # Create base output directory
@@ -254,7 +260,8 @@ def main():
             output_dir=str(output_dir),
             threshold=args.threshold,
             mutator=args.mutator,
-            filter_toxicity=config.get("filter_toxicity")
+            filter_toxicity=config.get("filter_toxicity"),
+            model=args.model
         )
         
         batch_results[test_name] = {
