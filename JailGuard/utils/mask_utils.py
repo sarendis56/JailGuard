@@ -4,7 +4,7 @@ import os
 import numpy as np
 import uuid
 import nltk
-from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.tokenize import PunktSentenceTokenizer, word_tokenize
 from nltk.corpus import stopwords
 from collections import defaultdict
 import random
@@ -210,7 +210,9 @@ def important_sentences(text, n=1,rate=0.0,check_q=True):
     if check_q:
         q_list=[]
     # Tokenize the text into sentences
-    sentences = sent_tokenize(text)
+    from nltk.tokenize import PunktSentenceTokenizer
+    tokenizer = PunktSentenceTokenizer()
+    sentences = tokenizer.tokenize(text)
     # Tokenize sentences into words
     words = [word_tokenize(sentence.lower()) for sentence in sentences]
 
@@ -358,4 +360,3 @@ def sm_process(text,amount,method='swap'):
         text=replace_at_index(text, select_index, tmp_string)
     return text
         
-
