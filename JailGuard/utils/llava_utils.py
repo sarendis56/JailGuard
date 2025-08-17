@@ -40,17 +40,34 @@ def initialize_model(model_path: Optional[str] = None,
 
     # Resolve model path - work from both main directory and JailGuard subdirectory
     if model_path is None:
-        # Try different possible locations for the model
-        possible_paths = [
-            "./model/llava-v1.6-vicuna-7b",  # From JailGuard subdirectory
-            "../model/llava-v1.6-vicuna-7b",  # From JailGuard subdirectory to parent
-            "model/llava-v1.6-vicuna-7b",    # From main directory
-        ]
+        # Get the current working directory to understand where we are
+        current_cwd = os.getcwd()
+        
+        # Try different possible locations for the model based on current working directory
+        possible_paths = []
+        
+        # If we're in the JailGuard subdirectory, try paths relative to parent
+        if current_cwd.endswith('/JailGuard'):
+            possible_paths.extend([
+                "../model/llava-v1.6-vicuna-7b",  # From JailGuard subdirectory to parent
+                "../../model/llava-v1.6-vicuna-7b",  # From JailGuard subdirectory to grandparent
+            ])
+        # If we're in the main directory, try paths relative to current location
+        else:
+            possible_paths.extend([
+                "./model/llava-v1.6-vicuna-7b",  # From main directory
+                "model/llava-v1.6-vicuna-7b",    # From main directory
+            ])
+        
+        # Always try absolute paths as fallback
+        possible_paths.extend([
+            "/home/server2/pchua/JailGuard/model/llava-v1.6-vicuna-7b",  # Absolute path
+        ])
 
         model_path = None
         for path in possible_paths:
             if os.path.exists(path):
-                model_path = path
+                model_path = os.path.abspath(path)  # Convert to absolute path
                 break
 
         if model_path is None:

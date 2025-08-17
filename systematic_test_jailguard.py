@@ -364,19 +364,12 @@ class JailGuardTester:
             return result
 
         except Exception as e:
-            processing_time = time.time() - start_time
-            return TestResult(
-                sample_id=sample_id,
-                dataset_name=self.config.dataset_name,
-                sample_data=sample,
-                detection_result=False,
-                max_divergence=0.0,
-                jailbreak_keywords=[],
-                processing_time=processing_time,
-                num_variants_generated=0,
-                num_responses_collected=0,
-                error_message=str(e)
-            )
+            # Don't swallow exceptions - let them bubble up to the main loop
+            # This ensures errors are properly reported instead of silently continuing
+            print(f"❌ CRITICAL ERROR in sample {sample_id}: {e}")
+            print(f"   This sample will be marked as failed and processing will continue")
+            print(f"   Check the error details above to understand what went wrong")
+            raise
 
     def _test_text_sample(self, sample: Dict[str, Any], sample_id: str,
                          variant_dir: Path, response_dir: Path) -> TestResult:
