@@ -4,14 +4,12 @@ import os
 import numpy as np
 import uuid
 import nltk
-from nltk.tokenize import PunktSentenceTokenizer, word_tokenize
+from nltk.tokenize import PunktSentenceTokenizer, TreebankWordTokenizer
 from nltk.corpus import stopwords
 from collections import defaultdict
 import random
 import nltk
-from nltk.corpus import wordnet 
-from nltk.tokenize import sent_tokenize
-import re
+from nltk.corpus import wordnet
 
 alphabet='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~'
 
@@ -213,8 +211,9 @@ def important_sentences(text, n=1,rate=0.0,check_q=True):
     from nltk.tokenize import PunktSentenceTokenizer
     tokenizer = PunktSentenceTokenizer()
     sentences = tokenizer.tokenize(text)
-    # Tokenize sentences into words
-    words = [word_tokenize(sentence.lower()) for sentence in sentences]
+    # Tokenize sentences into words using TreebankWordTokenizer (more reliable)
+    word_tokenizer = TreebankWordTokenizer()
+    words = [word_tokenizer.tokenize(sentence.lower()) for sentence in sentences]
 
     # Filter out stopwords
     stop_words = set(stopwords.words('english'))

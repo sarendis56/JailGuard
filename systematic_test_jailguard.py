@@ -348,6 +348,15 @@ class JailGuardTester:
             else:
                 result = self._test_text_sample(sample, sample_id, variant_dir, response_dir)
 
+            # Final validation before returning result
+            if result.num_variants_generated != self.config.num_variants:
+                raise RuntimeError(f"Sample {sample_id} failed validation: Expected {self.config.num_variants} variants, but got {result.num_variants_generated}")
+            
+            if result.num_responses_collected != self.config.num_variants:
+                raise RuntimeError(f"Sample {sample_id} failed validation: Expected {self.config.num_variants} responses, but got {result.num_responses_collected}")
+            
+            print(f"✅ Sample {sample_id} validation passed: {result.num_variants_generated} variants, {result.num_responses_collected} responses")
+            
             result.processing_time = time.time() - start_time
             result.variant_dir = str(variant_dir)
             result.response_dir = str(response_dir)
@@ -402,6 +411,8 @@ class JailGuardTester:
 
             # Generate text variants (same as main_txt.py line 67)
             text_variants = []
+            successful_variants = 0
+            
             for i in range(self.config.num_variants):
                 try:
                     # Apply text mutation to create variant
@@ -411,6 +422,13 @@ class JailGuardTester:
                     else:
                         variant_text = str(variant_result).strip()
 
+                    # Validate that variant is not empty
+                    if not variant_text.strip():
+                        raise ValueError(f"Generated variant {i+1} is empty")
+                    
+                    # Note: We allow variants to be identical to original text
+                    # The important thing is that we generate the expected number of variants
+
                     # Save variant to file (same format as main_txt.py)
                     import uuid
                     variant_filename = f"{str(uuid.uuid4())[:6]}-{self.config.mutator}"
@@ -419,12 +437,20 @@ class JailGuardTester:
                         f.write(variant_text)
 
                     text_variants.append(variant_text)
+                    successful_variants += 1
                     print(f"Generated text variant {i+1}: {variant_text[:50]}...")
 
                 except Exception as e:
-                    print(f"Warning: Failed to generate text variant {i}: {e}")
-                    # Fallback to original text
-                    text_variants.append(text)
+                    print(f"❌ CRITICAL ERROR: Failed to generate text variant {i+1}: {e}")
+                    print(f"   This indicates a fundamental problem with text augmentation")
+                    print(f"   Stopping execution to prevent incomplete results")
+                    raise RuntimeError(f"Text variant generation failed for variant {i+1}: {e}")
+            
+            # Validate that we generated the expected number of variants
+            if successful_variants != self.config.num_variants:
+                raise RuntimeError(f"Expected {self.config.num_variants} variants, but only generated {successful_variants}")
+            
+            print(f"✅ Successfully generated {successful_variants} text variants")
 
             # Step 2: Get responses using multimodal model with blank images (keep current approach)
             response_dir.mkdir(parents=True, exist_ok=True)
@@ -458,11 +484,17 @@ class JailGuardTester:
             temp_img_file.close()
 
             responses = []
+            successful_responses = 0
+            
             for i, variant_text in enumerate(text_variants):
                 try:
                     # Use MiniGPT-4 to get response
                     prompts_eval = [variant_text, temp_img_path]  # [question, image_path]
                     response = model_inference(vis_processor, chat, model, prompts_eval)
+
+                    # Validate response
+                    if not response or not response.strip():
+                        raise ValueError(f"Empty response received for variant {i+1}")
 
                     # Save response
                     response_filename = f"{i}-{self.config.mutator}"
@@ -471,11 +503,20 @@ class JailGuardTester:
                         f.write(response)
 
                     responses.append(response)
+                    successful_responses += 1
                     print(f"Got response {i+1}: {response[:50]}...")
 
                 except Exception as e:
-                    print(f"Warning: Failed to get response for variant {i}: {e}")
-                    responses.append("Error: No response generated")
+                    print(f"❌ CRITICAL ERROR: Failed to get response for variant {i+1}: {e}")
+                    print(f"   This indicates a fundamental problem with model inference")
+                    print(f"   Stopping execution to prevent incomplete results")
+                    raise RuntimeError(f"Response generation failed for variant {i+1}: {e}")
+            
+            # Validate that we got responses for all variants
+            if successful_responses != len(text_variants):
+                raise RuntimeError(f"Expected {len(text_variants)} responses, but only got {successful_responses}")
+            
+            print(f"✅ Successfully generated {successful_responses} responses")
 
             # Clean up temporary image file
             try:
@@ -489,6 +530,15 @@ class JailGuardTester:
             import spacy
 
             metric = spacy.load("en_core_web_md")
+            # Validate final results before divergence calculation
+            if len(responses) != self.config.num_variants:
+                raise RuntimeError(f"Final validation failed: Expected {self.config.num_variants} responses, but got {len(responses)}")
+            
+            if len(text_variants) != self.config.num_variants:
+                raise RuntimeError(f"Final validation failed: Expected {self.config.num_variants} variants, but got {len(text_variants)}")
+            
+            print(f"✅ Final validation passed: {len(text_variants)} variants and {len(responses)} responses")
+            
             max_div, jailbreak_keywords = update_divergence(
                 responses, sample_id, str(response_dir),
                 select_number=len(responses), metric=metric, top_string=500
@@ -509,6 +559,15 @@ class JailGuardTester:
             # Detect attack
             detection_result = detect_attack(max_div, jailbreak_keywords, self.config.threshold)
 
+            # Final validation of TestResult
+            if len(text_variants) != self.config.num_variants:
+                raise RuntimeError(f"TestResult validation failed: Expected {self.config.num_variants} variants, but got {len(text_variants)}")
+            
+            if len(responses) != self.config.num_variants:
+                raise RuntimeError(f"TestResult validation failed: Expected {self.config.num_variants} responses, but got {len(responses)}")
+            
+            print(f"✅ TestResult validation passed: {len(text_variants)} variants, {len(responses)} responses")
+            
             return TestResult(
                 sample_id=sample_id,
                 dataset_name=self.config.dataset_name,
