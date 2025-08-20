@@ -755,8 +755,8 @@ class JailGuardTester:
             with open(diver_save_path, 'wb') as f:
                 pickle.dump(divergence_results, f)
 
-            # Detect attack
-            detection_result = detect_attack(max_div, jailbreak_keywords, self.config.threshold)
+            from utils import enhanced_detect_attack
+            detection_result = enhanced_detect_attack(responses, max_div, jailbreak_keywords, self.config.threshold)
 
             # Final validation of TestResult
             if len(text_variants) != self.config.num_variants:

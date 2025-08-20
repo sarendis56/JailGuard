@@ -85,7 +85,7 @@ def get_similarity(s1,s2,method='spacy',misc=None):
     return similarity_score
 
 
-def get_divergence(similarity_matrix,i,j,mode='KL'):
+def get_divergence(similarity_matrix,i,j,mode='semantic'):
     if mode=='KL':
         # Calculate KL Divergence (original method - problematic for semantic differences)
         p = similarity_matrix[i] / np.sum(similarity_matrix[i])
@@ -93,10 +93,33 @@ def get_divergence(similarity_matrix,i,j,mode='KL'):
         divergence = np.sum(p * np.log(p / q))
     elif mode=='semantic':
         # Calculate semantic divergence (1 - similarity) - more appropriate for response differences
+        # This directly measures how different two responses are
         divergence = 1.0 - similarity_matrix[i, j]
+    elif mode=='enhanced_semantic':
+        # Enhanced semantic divergence that amplifies differences
+        # For jailbreak detection, we want to amplify the difference between safe and unsafe responses
+        base_divergence = 1.0 - similarity_matrix[i, j]
+        
+        # If the similarity is very high (>0.8), the responses are very similar (likely both safe or both unsafe)
+        # If the similarity is low (<0.5), the responses are very different (likely one safe, one unsafe)
+        if similarity_matrix[i, j] > 0.8:
+            # High similarity - responses are very similar, reduce divergence
+            divergence = base_divergence * 0.5
+        elif similarity_matrix[i, j] < 0.5:
+            # Low similarity - responses are very different, amplify divergence
+            divergence = base_divergence * 2.0
+        else:
+            # Medium similarity - keep base divergence
+            divergence = base_divergence
     else:
-        # Default to semantic divergence
-        divergence = 1.0 - similarity_matrix[i, j]
+        # Default to enhanced semantic divergence for better jailbreak detection
+        base_divergence = 1.0 - similarity_matrix[i, j]
+        if similarity_matrix[i, j] > 0.8:
+            divergence = base_divergence * 0.5
+        elif similarity_matrix[i, j] < 0.5:
+            divergence = base_divergence * 2.0
+        else:
+            divergence = base_divergence
     return divergence
 
 def visualize(divergence_matrix,save_path,vmax):
