@@ -394,56 +394,244 @@ class JailGuardTester:
 
             # Import text augmentation functions
             sys.path.append('./JailGuard/utils')
-            from augmentations import text_aug_dict
+            from augmentations import text_aug_dict, find_index, remove_non_utf8
 
             # Get the text mutation method (same as main_txt.py line 55)
             if self.config.mutator not in text_aug_dict:
                 raise ValueError(f"Unknown text mutator: {self.config.mutator}")
 
-            tmp_method = text_aug_dict[self.config.mutator]
+            # For better diversity, we'll use different strategies based on the mutator type
+            if self.config.mutator == 'PL':
+                # Policy method: use different combinations for each variant
+                base_mutators = ['PI', 'TI', 'TL']  # Punctuation, Targeted Insertion, Translation
+                base_probabilities = [0.24, 0.52, 0.24]
+                
+                # Create diverse variants by using different mutator combinations
+                text_variants = []
+                successful_variants = 0
+                
+                for i in range(self.config.num_variants):
+                    try:
+                        if i < len(base_mutators):
+                            # Use individual mutators for first few variants
+                            mutator_name = base_mutators[i]
+                            tmp_method = text_aug_dict[mutator_name]
+                            print(f"Using individual mutator: {mutator_name}")
+                        else:
+                            # For remaining variants, use policy with different parameters
+                            # Vary the probability distribution to create diversity
+                            if i % 3 == 0:
+                                # High PI, low TI, medium TL
+                                level = '0.4-0.3-0.3'
+                                pool = 'PI-TI-TL'
+                            elif i % 3 == 1:
+                                # Medium PI, high TI, low TL
+                                level = '0.2-0.6-0.2'
+                                pool = 'PI-TI-TL'
+                            else:
+                                # Low PI, medium TI, high TL
+                                level = '0.1-0.3-0.6'
+                                pool = 'PI-TI-TL'
+                            
+                            # Create a custom policy method for this variant
+                            def create_custom_policy(level, pool):
+                                mutator_list = [text_aug_dict[_mut] for _mut in pool.split('-')]
+                                probability_list = [float(_value) for _value in level.split('-')]
+                                probability_list = [sum(probability_list[:i]) for i in range(len(level))]
+                                
+                                def custom_policy(text_list):
+                                    randnum = np.random.random()
+                                    index = find_index(probability_list, randnum)
+                                    return mutator_list[index](text_list)
+                                
+                                return custom_policy
+                            
+                            tmp_method = create_custom_policy(level, pool)
+                            print(f"Using custom policy variant {i}: {level} with {pool}")
+                        
+                        # Apply text mutation to create variant
+                        variant_result = tmp_method(text_list=[text])
+                        if isinstance(variant_result, list):
+                            variant_text = ''.join(variant_result).strip()
+                        else:
+                            variant_text = str(variant_result).strip()
 
-            # Generate text variants (same as main_txt.py line 67)
-            text_variants = []
-            successful_variants = 0
-            
-            for i in range(self.config.num_variants):
-                try:
-                    # Apply text mutation to create variant
-                    variant_result = tmp_method(text_list=[text])
-                    if isinstance(variant_result, list):
-                        variant_text = ''.join(variant_result).strip()
-                    else:
-                        variant_text = str(variant_result).strip()
+                        # Validate that variant is not empty
+                        if not variant_text.strip():
+                            raise ValueError(f"Generated variant {i+1} is empty")
+                        
+                        # Check if this variant is too similar to previous ones
+                        is_similar = False
+                        for prev_variant in text_variants:
+                            if variant_text == prev_variant:
+                                is_similar = True
+                                break
+                        
+                        if is_similar:
+                            print(f"Warning: Variant {i+1} is identical to a previous variant, regenerating...")
+                            # Try to regenerate with different parameters
+                            if hasattr(tmp_method, '__name__') and tmp_method.__name__ == 'custom_policy':
+                                # For custom policy, try different probability distributions
+                                alt_levels = ['0.5-0.3-0.2', '0.2-0.5-0.3', '0.3-0.2-0.5']
+                                alt_pools = ['PI-TI-TL', 'TI-TL-PI', 'TL-PI-TI']
+                                
+                                for alt_level, alt_pool in zip(alt_levels, alt_pools):
+                                    alt_method = create_custom_policy(alt_level, alt_pool)
+                                    alt_result = alt_method(text_list=[text])
+                                    if isinstance(alt_result, list):
+                                        alt_text = ''.join(alt_result).strip()
+                                    else:
+                                        alt_text = str(alt_result).strip()
+                                    
+                                    if alt_text != variant_text and alt_text not in text_variants:
+                                        variant_text = alt_text
+                                        print(f"Generated alternative variant {i+1} with {alt_level}")
+                                        break
+                            else:
+                                # For individual mutators, try with different levels
+                                if mutator_name in ['RR', 'RI', 'TR', 'TI', 'RD']:
+                                    # Try different perturbation levels
+                                    alt_levels = [0.02, 0.03, 0.04]  # Higher rates
+                                    for alt_level in alt_levels:
+                                        alt_method = text_aug_dict[mutator_name]
+                                        alt_result = alt_method(text_list=[text], level=alt_level)
+                                        if isinstance(alt_result, list):
+                                            alt_text = ''.join(alt_result).strip()
+                                        else:
+                                            alt_text = str(alt_result).strip()
+                                        
+                                        if alt_text != variant_text and alt_text not in text_variants:
+                                            variant_text = alt_text
+                                            print(f"Generated alternative variant {i+1} with level {alt_level}")
+                                            break
 
-                    # Validate that variant is not empty
-                    if not variant_text.strip():
-                        raise ValueError(f"Generated variant {i+1} is empty")
-                    
-                    # Note: We allow variants to be identical to original text
-                    # The important thing is that we generate the expected number of variants
+                        # Save variant to file (same format as main_txt.py)
+                        import uuid
+                        variant_filename = f"{str(uuid.uuid4())[:6]}-{self.config.mutator}"
+                        variant_path = variant_dir / variant_filename
+                        with open(variant_path, 'w', encoding='utf-8') as f:
+                            f.write(variant_text)
 
-                    # Save variant to file (same format as main_txt.py)
-                    import uuid
-                    variant_filename = f"{str(uuid.uuid4())[:6]}-{self.config.mutator}"
-                    variant_path = variant_dir / variant_filename
-                    with open(variant_path, 'w', encoding='utf-8') as f:
-                        f.write(variant_text)
+                        text_variants.append(variant_text)
+                        successful_variants += 1
+                        print(f"Generated text variant {i+1}: {variant_text[:50]}...")
 
-                    text_variants.append(variant_text)
-                    successful_variants += 1
-                    print(f"Generated text variant {i+1}: {variant_text[:50]}...")
+                    except Exception as e:
+                        print(f"❌ CRITICAL ERROR: Failed to generate text variant {i+1}: {e}")
+                        print(f"   This indicates a fundamental problem with text augmentation")
+                        print(f"   Stopping execution to prevent incomplete results")
+                        raise RuntimeError(f"Text variant generation failed for variant {i+1}: {e}")
+                
+                # Validate that we generated the expected number of variants
+                if successful_variants != self.config.num_variants:
+                    raise RuntimeError(f"Expected {self.config.num_variants} variants, but only generated {successful_variants}")
+                
+                print(f"✅ Successfully generated {successful_variants} diverse text variants")
+                
+            else:
+                # For non-policy mutators, use different levels/parameters for each variant
+                base_method = text_aug_dict[self.config.mutator]
+                text_variants = []
+                successful_variants = 0
+                
+                for i in range(self.config.num_variants):
+                    try:
+                        # Vary the perturbation level for each variant to ensure diversity
+                        if self.config.mutator in ['RR', 'RI', 'TR', 'TI', 'RD']:
+                            # Character-level operations: vary the level
+                            base_level = 0.01
+                            variant_level = base_level * (1 + i * 0.5)  # 0.01, 0.015, 0.02, etc.
+                        elif self.config.mutator == 'SR':
+                            # Synonym replacement: vary the number of words to replace
+                            base_level = 20
+                            variant_level = max(5, base_level - i * 3)  # 20, 17, 14, etc.
+                        elif self.config.mutator == 'TL':
+                            # Translation: use different target languages
+                            target_languages = ['ru', 'fr', 'de', 'el', 'id', 'it', 'ja', 'ko', 'la', 'pl']
+                            target_lang = target_languages[i % len(target_languages)]
+                            
+                            # Create a custom translation method for this specific language
+                            def create_language_specific_translator(target_lang):
+                                def custom_translate(text_list):
+                                    from textaugment import Translate
+                                    whole_text = ''.join(text_list)
+                                    whole_text = remove_non_utf8(whole_text)
+                                    t = Translate(src="en", to=target_lang)
+                                    try:
+                                        whole_text = t.augment(whole_text)
+                                    except Exception as e:
+                                        print(f"Translation to {target_lang} failed: {e}")
+                                        whole_text = whole_text
+                                    output_list = whole_text.split('\n')
+                                    output_list = [output + '\n' for output in output_list]
+                                    return output_list
+                                return custom_translate
+                            
+                            tmp_method = create_language_specific_translator(target_lang)
+                            variant_level = None  # Not used for translation
+                        else:
+                            # Other methods: use default level
+                            variant_level = None
+                        
+                        # Apply text mutation to create variant
+                        if variant_level is not None:
+                            variant_result = tmp_method(text_list=[text], level=variant_level)
+                        else:
+                            variant_result = tmp_method(text_list=[text])
+                            
+                        if isinstance(variant_result, list):
+                            variant_text = ''.join(variant_result).strip()
+                        else:
+                            variant_text = str(variant_result).strip()
 
-                except Exception as e:
-                    print(f"❌ CRITICAL ERROR: Failed to generate text variant {i+1}: {e}")
-                    print(f"   This indicates a fundamental problem with text augmentation")
-                    print(f"   Stopping execution to prevent incomplete results")
-                    raise RuntimeError(f"Text variant generation failed for variant {i+1}: {e}")
-            
-            # Validate that we generated the expected number of variants
-            if successful_variants != self.config.num_variants:
-                raise RuntimeError(f"Expected {self.config.num_variants} variants, but only generated {successful_variants}")
-            
-            print(f"✅ Successfully generated {successful_variants} text variants")
+                        # Validate that variant is not empty
+                        if not variant_text.strip():
+                            raise ValueError(f"Generated variant {i+1} is empty")
+                        
+                        # Check if this variant is too similar to previous ones
+                        is_similar = False
+                        for prev_variant in text_variants:
+                            if variant_text == prev_variant:
+                                is_similar = True
+                                break
+                        
+                        if is_similar:
+                            print(f"Warning: Variant {i+1} is identical to a previous variant, regenerating...")
+                            # Try with a different level
+                            if variant_level is not None:
+                                alt_level = variant_level * 1.5
+                                alt_result = tmp_method(text_list=[text], level=alt_level)
+                                if isinstance(alt_result, list):
+                                    alt_text = ''.join(alt_result).strip()
+                                else:
+                                    alt_text = str(alt_result).strip()
+                                
+                                if alt_text != variant_text and alt_text not in text_variants:
+                                    variant_text = alt_text
+                                    print(f"Generated alternative variant {i+1} with level {alt_level}")
+
+                        # Save variant to file
+                        import uuid
+                        variant_filename = f"{str(uuid.uuid4())[:6]}-{self.config.mutator}"
+                        variant_path = variant_dir / variant_filename
+                        with open(variant_path, 'w', encoding='utf-8') as f:
+                            f.write(variant_text)
+
+                        text_variants.append(variant_text)
+                        successful_variants += 1
+                        print(f"Generated text variant {i+1}: {variant_text[:50]}...")
+
+                    except Exception as e:
+                        print(f"❌ CRITICAL ERROR: Failed to generate text variant {i+1}: {e}")
+                        print(f"   This indicates a fundamental problem with text augmentation")
+                        print(f"   Stopping execution to prevent incomplete results")
+                        raise RuntimeError(f"Text variant generation failed for variant {i+1}: {e}")
+                
+                # Validate that we generated the expected number of variants
+                if successful_variants != self.config.num_variants:
+                    raise RuntimeError(f"Expected {self.config.num_variants} variants, but only generated {successful_variants}")
+                
+                print(f"✅ Successfully generated {successful_variants} diverse text variants")
 
             # Step 2: Get responses using multimodal model with blank images (keep current approach)
             response_dir.mkdir(parents=True, exist_ok=True)
