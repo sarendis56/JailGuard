@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Systematic Testing Script for JailGuard
-========================================
+Systematic Testing Script for JailGuard with Enhanced Detection
+==============================================================
 
 This script provides comprehensive batch testing capabilities for JailGuard on custom datasets.
 It can load various datasets, run JailGuard testing systematically, and generate detailed reports.
@@ -12,6 +12,7 @@ Features:
 - Comprehensive result collection and analysis
 - Configurable testing parameters
 - Detailed reporting and statistics
+- Enhanced jailbreak detection with multiple methods
 
 Usage:
     python systematic_test_jailguard.py --config config.yaml
@@ -106,7 +107,7 @@ class TestConfig:
     # JailGuard configuration
     mutator: str = "PL"  # Policy (combination of multiple augmentations)
     num_variants: int = 8
-    threshold: float = 0.025
+    threshold: float = 0.030  # Optimized threshold based on comprehensive analysis
     model: Optional[str] = None  # Model to use: 'minigpt4', 'llava', or None for default
     
     # Output configuration
@@ -247,19 +248,13 @@ class JailGuardTester:
         
     def initialize_models(self):
         """Initialize required models"""
-        print("Initializing models...")
-
         # Initialize spaCy model for text similarity
         if SPACY_AVAILABLE:
             try:
                 self.spacy_model = spacy.load("en_core_web_md")
-                print("✓ SpaCy model loaded")
             except Exception as e:
-                print(f"✗ Failed to load SpaCy model: {e}")
-                print("Text similarity calculations will be limited")
                 self.spacy_model = None
         else:
-            print("⚠ SpaCy not available - text similarity calculations will be limited")
             self.spacy_model = None
 
         # Initialize multimodal model for testing
@@ -271,17 +266,13 @@ class JailGuardTester:
 
                 if os.path.exists(jailguard_dir):
                     os.chdir(jailguard_dir)
-                    print(f"Changed to JailGuard directory: {jailguard_dir}")
 
                 self.vis_processor, self.chat, self.model = initialize_model(model_type=self.config.model)
-                print("✓ Multimodal model loaded")
 
                 # Change back to original directory
                 os.chdir(original_cwd)
 
             except Exception as e:
-                print(f"✗ Failed to load multimodal model: {e}")
-                print("Multimodal testing will not be available")
                 self.vis_processor = None
                 self.chat = None
                 self.model = None
@@ -291,15 +282,12 @@ class JailGuardTester:
                 except:
                     pass
         else:
-            print("⚠ Multimodal models not available - multimodal testing will be disabled")
             self.vis_processor = None
             self.chat = None
             self.model = None
     
     def load_dataset(self, dataset_name: str, max_samples: Optional[int] = None, filter_toxicity: Optional[int] = None) -> List[Dict[str, Any]]:
         """Load a dataset using the registry"""
-        print(f"Loading dataset: {dataset_name}")
-
         loader = DatasetRegistry.get_loader(dataset_name)
 
         # Load dataset with appropriate parameters
@@ -314,17 +302,12 @@ class JailGuardTester:
 
         # Apply toxicity filter if specified
         if filter_toxicity is not None:
-            original_size = len(dataset)
             dataset = [sample for sample in dataset if sample.get('toxicity') == filter_toxicity]
-            toxicity_label = "safe" if filter_toxicity == 0 else "unsafe"
-            print(f"✓ Filtered to {len(dataset)} {toxicity_label} samples (from {original_size} total)")
 
         # Apply max_samples limit after filtering
         if max_samples is not None and len(dataset) > max_samples:
             dataset = dataset[:max_samples]
-            print(f"✓ Limited to {len(dataset)} samples")
 
-        print(f"✓ Loaded {len(dataset)} samples from {dataset_name}")
         return dataset
 
     def test_single_sample(self, sample: Dict[str, Any], sample_id: str) -> TestResult:
@@ -351,11 +334,9 @@ class JailGuardTester:
             # Final validation before returning result
             if result.num_variants_generated != self.config.num_variants:
                 raise RuntimeError(f"Sample {sample_id} failed validation: Expected {self.config.num_variants} variants, but got {result.num_variants_generated}")
-            
+
             if result.num_responses_collected != self.config.num_variants:
                 raise RuntimeError(f"Sample {sample_id} failed validation: Expected {self.config.num_variants} responses, but got {result.num_responses_collected}")
-            
-            print(f"✅ Sample {sample_id} validation passed: {result.num_variants_generated} variants, {result.num_responses_collected} responses")
             
             result.processing_time = time.time() - start_time
             result.variant_dir = str(variant_dir)
@@ -378,8 +359,6 @@ class JailGuardTester:
         if not text:
             raise ValueError("Sample has no text content")
 
-        print(f"Processing text-only sample {sample_id}...")
-
         # Import model utilities first (needed for both cases)
         sys.path.append('./JailGuard/utils')
         try:
@@ -390,7 +369,6 @@ class JailGuardTester:
 
         # Use the already initialized model from initialize_models()
         if not hasattr(self, 'model') or self.model is None:
-            print("Warning: Model not initialized, falling back to per-sample initialization")
             # Only initialize if not already done
             # Change to JailGuard directory for proper initialization
             original_cwd = os.getcwd()
@@ -399,12 +377,9 @@ class JailGuardTester:
 
             try:
                 self.vis_processor, self.chat, self.model = initialize_model(model_type=self.config.model)
-                print("✓ Model initialized for this sample")
             finally:
                 # Change back to original directory
                 os.chdir(original_cwd)
-        else:
-            print("✓ Using pre-initialized model")
 
         try:
             # Step 1: Generate text variants using JailGuard's text mutation logic (like main_txt.py)
@@ -414,7 +389,7 @@ class JailGuardTester:
             sys.path.append('./JailGuard/utils')
             from augmentations import text_aug_dict, find_index, remove_non_utf8
 
-            # Get the text mutation method (same as main_txt.py line 55)
+                        # Get the text mutation method (same as main_txt.py line 55)
             if self.config.mutator not in text_aug_dict:
                 raise ValueError(f"Unknown text mutator: {self.config.mutator}")
 
@@ -423,18 +398,17 @@ class JailGuardTester:
                 # Policy method: use different combinations for each variant
                 base_mutators = ['PI', 'TI', 'TL']  # Punctuation, Targeted Insertion, Translation
                 base_probabilities = [0.24, 0.52, 0.24]
-                
+
                 # Create diverse variants by using different mutator combinations
                 text_variants = []
                 successful_variants = 0
-                
+
                 for i in range(self.config.num_variants):
                     try:
                         if i < len(base_mutators):
                             # Use individual mutators for first few variants
                             mutator_name = base_mutators[i]
                             tmp_method = text_aug_dict[mutator_name]
-                            print(f"Using individual mutator: {mutator_name}")
                         else:
                             # For remaining variants, use policy with different parameters
                             # Vary the probability distribution to create diversity
@@ -450,23 +424,22 @@ class JailGuardTester:
                                 # Low PI, medium TI, high TL
                                 level = '0.1-0.3-0.6'
                                 pool = 'PI-TI-TL'
-                            
+
                             # Create a custom policy method for this variant
                             def create_custom_policy(level, pool):
                                 mutator_list = [text_aug_dict[_mut] for _mut in pool.split('-')]
                                 probability_list = [float(_value) for _value in level.split('-')]
                                 probability_list = [sum(probability_list[:i]) for i in range(len(level))]
-                                
+
                                 def custom_policy(text_list):
                                     randnum = np.random.random()
                                     index = find_index(probability_list, randnum)
                                     return mutator_list[index](text_list)
-                                
+
                                 return custom_policy
-                            
+
                             tmp_method = create_custom_policy(level, pool)
-                            print(f"Using custom policy variant {i}: {level} with {pool}")
-                        
+
                         # Apply text mutation to create variant
                         variant_result = tmp_method(text_list=[text])
                         if isinstance(variant_result, list):
@@ -477,22 +450,21 @@ class JailGuardTester:
                         # Validate that variant is not empty
                         if not variant_text.strip():
                             raise ValueError(f"Generated variant {i+1} is empty")
-                        
+
                         # Check if this variant is too similar to previous ones
                         is_similar = False
                         for prev_variant in text_variants:
                             if variant_text == prev_variant:
                                 is_similar = True
                                 break
-                        
+
                         if is_similar:
-                            print(f"Warning: Variant {i+1} is identical to a previous variant, regenerating...")
                             # Try to regenerate with different parameters
                             if hasattr(tmp_method, '__name__') and tmp_method.__name__ == 'custom_policy':
                                 # For custom policy, try different probability distributions
                                 alt_levels = ['0.5-0.3-0.2', '0.2-0.5-0.3', '0.3-0.2-0.5']
                                 alt_pools = ['PI-TI-TL', 'TI-TL-PI', 'TL-PI-TI']
-                                
+
                                 for alt_level, alt_pool in zip(alt_levels, alt_pools):
                                     alt_method = create_custom_policy(alt_level, alt_pool)
                                     alt_result = alt_method(text_list=[text])
@@ -500,10 +472,9 @@ class JailGuardTester:
                                         alt_text = ''.join(alt_result).strip()
                                     else:
                                         alt_text = str(alt_result).strip()
-                                    
+
                                     if alt_text != variant_text and alt_text not in text_variants:
                                         variant_text = alt_text
-                                        print(f"Generated alternative variant {i+1} with {alt_level}")
                                         break
                             else:
                                 # For individual mutators, try with different levels
@@ -517,10 +488,9 @@ class JailGuardTester:
                                             alt_text = ''.join(alt_result).strip()
                                         else:
                                             alt_text = str(alt_result).strip()
-                                        
+
                                         if alt_text != variant_text and alt_text not in text_variants:
                                             variant_text = alt_text
-                                            print(f"Generated alternative variant {i+1} with level {alt_level}")
                                             break
 
                         # Save variant to file (same format as main_txt.py)
@@ -532,26 +502,20 @@ class JailGuardTester:
 
                         text_variants.append(variant_text)
                         successful_variants += 1
-                        print(f"Generated text variant {i+1}: {variant_text[:50]}...")
 
                     except Exception as e:
-                        print(f"❌ CRITICAL ERROR: Failed to generate text variant {i+1}: {e}")
-                        print(f"   This indicates a fundamental problem with text augmentation")
-                        print(f"   Stopping execution to prevent incomplete results")
                         raise RuntimeError(f"Text variant generation failed for variant {i+1}: {e}")
-                
+
                 # Validate that we generated the expected number of variants
                 if successful_variants != self.config.num_variants:
                     raise RuntimeError(f"Expected {self.config.num_variants} variants, but only generated {successful_variants}")
-                
-                print(f"✅ Successfully generated {successful_variants} diverse text variants")
                 
             else:
                 # For non-policy mutators, use different levels/parameters for each variant
                 base_method = text_aug_dict[self.config.mutator]
                 text_variants = []
                 successful_variants = 0
-                
+
                 for i in range(self.config.num_variants):
                     try:
                         # Vary the perturbation level for each variant to ensure diversity
@@ -567,7 +531,7 @@ class JailGuardTester:
                             # Translation: use different target languages
                             target_languages = ['ru', 'fr', 'de', 'el', 'id', 'it', 'ja', 'ko', 'la', 'pl']
                             target_lang = target_languages[i % len(target_languages)]
-                            
+
                             # Create a custom translation method for this specific language
                             def create_language_specific_translator(target_lang):
                                 def custom_translate(text_list):
@@ -578,25 +542,24 @@ class JailGuardTester:
                                     try:
                                         whole_text = t.augment(whole_text)
                                     except Exception as e:
-                                        print(f"Translation to {target_lang} failed: {e}")
                                         whole_text = whole_text
                                     output_list = whole_text.split('\n')
                                     output_list = [output + '\n' for output in output_list]
                                     return output_list
                                 return custom_translate
-                            
+
                             tmp_method = create_language_specific_translator(target_lang)
                             variant_level = None  # Not used for translation
                         else:
                             # Other methods: use default level
                             variant_level = None
-                        
+
                         # Apply text mutation to create variant
                         if variant_level is not None:
                             variant_result = tmp_method(text_list=[text], level=variant_level)
                         else:
                             variant_result = tmp_method(text_list=[text])
-                            
+
                         if isinstance(variant_result, list):
                             variant_text = ''.join(variant_result).strip()
                         else:
@@ -605,16 +568,15 @@ class JailGuardTester:
                         # Validate that variant is not empty
                         if not variant_text.strip():
                             raise ValueError(f"Generated variant {i+1} is empty")
-                        
+
                         # Check if this variant is too similar to previous ones
                         is_similar = False
                         for prev_variant in text_variants:
                             if variant_text == prev_variant:
                                 is_similar = True
                                 break
-                        
+
                         if is_similar:
-                            print(f"Warning: Variant {i+1} is identical to a previous variant, regenerating...")
                             # Try with a different level
                             if variant_level is not None:
                                 alt_level = variant_level * 1.5
@@ -623,10 +585,9 @@ class JailGuardTester:
                                     alt_text = ''.join(alt_result).strip()
                                 else:
                                     alt_text = str(alt_result).strip()
-                                
+
                                 if alt_text != variant_text and alt_text not in text_variants:
                                     variant_text = alt_text
-                                    print(f"Generated alternative variant {i+1} with level {alt_level}")
 
                         # Save variant to file
                         import uuid
@@ -637,19 +598,13 @@ class JailGuardTester:
 
                         text_variants.append(variant_text)
                         successful_variants += 1
-                        print(f"Generated text variant {i+1}: {variant_text[:50]}...")
 
                     except Exception as e:
-                        print(f"❌ CRITICAL ERROR: Failed to generate text variant {i+1}: {e}")
-                        print(f"   This indicates a fundamental problem with text augmentation")
-                        print(f"   Stopping execution to prevent incomplete results")
                         raise RuntimeError(f"Text variant generation failed for variant {i+1}: {e}")
-                
+
                 # Validate that we generated the expected number of variants
                 if successful_variants != self.config.num_variants:
                     raise RuntimeError(f"Expected {self.config.num_variants} variants, but only generated {successful_variants}")
-                
-                print(f"✅ Successfully generated {successful_variants} diverse text variants")
 
             # Step 2: Get responses using multimodal model with blank images (keep current approach)
             response_dir.mkdir(parents=True, exist_ok=True)
@@ -657,10 +612,8 @@ class JailGuardTester:
             # Use the already initialized model instead of re-initializing
             if hasattr(self, 'model') and self.model is not None:
                 vis_processor, chat, model = self.vis_processor, self.chat, self.model
-                print("✓ Using pre-initialized model for inference")
             else:
                 # Fallback to per-sample initialization if needed
-                # Note: model_inference is already imported above
                 # Change to JailGuard directory for proper initialization
                 original_cwd = os.getcwd()
                 jailguard_dir = os.path.join(original_cwd, 'JailGuard')
@@ -668,7 +621,6 @@ class JailGuardTester:
 
                 try:
                     vis_processor, chat, model = initialize_model(model_type=self.config.model)
-                    print("✓ Model initialized for this sample (fallback)")
                 finally:
                     # Change back to original directory
                     os.chdir(original_cwd)
@@ -684,7 +636,7 @@ class JailGuardTester:
 
             responses = []
             successful_responses = 0
-            
+
             for i, variant_text in enumerate(text_variants):
                 try:
                     # Use MiniGPT-4 to get response
@@ -703,19 +655,13 @@ class JailGuardTester:
 
                     responses.append(response)
                     successful_responses += 1
-                    print(f"Got response {i+1}: {response[:50]}...")
 
                 except Exception as e:
-                    print(f"❌ CRITICAL ERROR: Failed to get response for variant {i+1}: {e}")
-                    print(f"   This indicates a fundamental problem with model inference")
-                    print(f"   Stopping execution to prevent incomplete results")
                     raise RuntimeError(f"Response generation failed for variant {i+1}: {e}")
-            
+
             # Validate that we got responses for all variants
             if successful_responses != len(text_variants):
                 raise RuntimeError(f"Expected {len(text_variants)} responses, but only got {successful_responses}")
-            
-            print(f"✅ Successfully generated {successful_responses} responses")
 
             # Clean up temporary image file
             try:
@@ -723,21 +669,19 @@ class JailGuardTester:
             except:
                 pass
 
-            # Step 3: Calculate divergence (same as main_img.py)
+            # Calculate divergence and use detection system
             sys.path.append('./JailGuard/utils')
-            from utils import update_divergence, detect_attack
+            from utils import update_divergence, enhanced_detect_attack
             import spacy
 
             metric = spacy.load("en_core_web_md")
             # Validate final results before divergence calculation
             if len(responses) != self.config.num_variants:
                 raise RuntimeError(f"Final validation failed: Expected {self.config.num_variants} responses, but got {len(responses)}")
-            
+
             if len(text_variants) != self.config.num_variants:
                 raise RuntimeError(f"Final validation failed: Expected {self.config.num_variants} variants, but got {len(text_variants)}")
-            
-            print(f"✅ Final validation passed: {len(text_variants)} variants and {len(responses)} responses")
-            
+
             max_div, jailbreak_keywords = update_divergence(
                 responses, sample_id, str(response_dir),
                 select_number=len(responses), metric=metric, top_string=500
@@ -755,17 +699,14 @@ class JailGuardTester:
             with open(diver_save_path, 'wb') as f:
                 pickle.dump(divergence_results, f)
 
-            from utils import enhanced_detect_attack
             detection_result = enhanced_detect_attack(responses, max_div, jailbreak_keywords, self.config.threshold)
 
             # Final validation of TestResult
             if len(text_variants) != self.config.num_variants:
                 raise RuntimeError(f"TestResult validation failed: Expected {self.config.num_variants} variants, but got {len(text_variants)}")
-            
+
             if len(responses) != self.config.num_variants:
                 raise RuntimeError(f"TestResult validation failed: Expected {self.config.num_variants} responses, but got {len(responses)}")
-            
-            print(f"✅ TestResult validation passed: {len(text_variants)} variants, {len(responses)} responses")
             
             return TestResult(
                 sample_id=sample_id,
@@ -800,13 +741,7 @@ class JailGuardTester:
         if not os.path.exists(img_path):
             raise ValueError(f"Sample image not found: {img_path}")
 
-        print(f"Processing sample {sample_id}...")
 
-        # Use the already initialized model from initialize_models()
-        if not hasattr(self, 'model') or self.model is None:
-            print("Warning: Model not initialized, falling back to per-sample initialization")
-        else:
-            print("✓ Using pre-initialized model")
 
         try:
             # Create a temporary dataset structure that main_img.py expects
@@ -983,14 +918,6 @@ class JailGuardTester:
 
     def run_systematic_test(self) -> List[TestResult]:
         """Run systematic testing on the configured dataset"""
-        print(f"Starting systematic test with configuration:")
-        print(f"  Dataset: {self.config.dataset_name}")
-        print(f"  Max samples: {self.config.max_samples}")
-        print(f"  Mutator: {self.config.mutator}")
-        print(f"  Variants per sample: {self.config.num_variants}")
-        print(f"  Threshold: {self.config.threshold}")
-        print()
-
         # Initialize models
         self.initialize_models()
 
@@ -998,7 +925,6 @@ class JailGuardTester:
         dataset = self.load_dataset(self.config.dataset_name, self.config.max_samples, self.config.filter_toxicity)
 
         if not dataset:
-            print("No samples to test!")
             return []
 
         # Setup checkpoint file
@@ -1012,8 +938,6 @@ class JailGuardTester:
         # Process samples
         processed_count = len(self.results)
         total_count = len(dataset)
-
-        print(f"Processing {total_count - processed_count} samples (resuming from {processed_count})...")
 
         with tqdm(total=total_count, initial=processed_count, desc="Testing samples") as pbar:
             for i, sample in enumerate(dataset[processed_count:], start=processed_count):
@@ -1033,11 +957,9 @@ class JailGuardTester:
                     })
 
                 except KeyboardInterrupt:
-                    print("\nInterrupted by user. Saving checkpoint...")
                     self._save_checkpoint()
                     break
                 except Exception as e:
-                    print(f"Error processing sample {sample_id}: {e}")
                     # Create error result
                     error_result = TestResult(
                         sample_id=sample_id,
@@ -1057,11 +979,6 @@ class JailGuardTester:
 
         # Save final results
         self._save_checkpoint()
-
-        print(f"\nTesting completed!")
-        print(f"Total samples processed: {len(self.results)}")
-        print(f"Attacks detected: {sum(1 for r in self.results if r.detection_result)}")
-        print(f"Errors encountered: {sum(1 for r in self.results if r.error_message)}")
 
         return self.results
 
@@ -1329,7 +1246,7 @@ Examples:
     # JailGuard options
     parser.add_argument('--mutator', type=str, default='PL', help='Augmentation method')
     parser.add_argument('--num-variants', type=int, default=8, help='Number of variants per sample')
-    parser.add_argument('--threshold', type=float, default=0.025, help='Detection threshold')
+    parser.add_argument('--threshold', type=float, default=0.030, help='Detection threshold (optimized default: 0.030)')
 
     # Output options
     parser.add_argument('--output-dir', type=str, help='Output directory')
@@ -1400,9 +1317,9 @@ Examples:
 
             # Print summary report
             report = tester.generate_report()
-            print("\n" + "="*60)
-            print("TEST SUMMARY")
-            print("="*60)
+
+            print("\nTEST SUMMARY")
+            print("="*50)
             print(f"Dataset: {report['test_summary']['dataset']}")
             print(f"Total samples: {report['test_summary']['total_samples']}")
             print(f"Successful tests: {report['test_summary']['successful_tests']}")
@@ -1425,8 +1342,6 @@ Examples:
         print("\nTesting interrupted by user.")
     except Exception as e:
         print(f"Error during testing: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 if __name__ == "__main__":

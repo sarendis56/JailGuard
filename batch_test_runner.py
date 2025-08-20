@@ -16,6 +16,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 # Test configuration matching the 1800 sample test set
+# Note: Enhanced detection system is now integrated with optimized threshold 0.030
 TEST_CONFIGURATION = {
     "safe_datasets": {
         "XSTest_safe": {
@@ -72,16 +73,14 @@ TEST_CONFIGURATION = {
     }
 }
 
-def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, threshold=0.025, mutator="PL", filter_toxicity=None, model=None):
+def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, threshold=0.030, mutator="PL", filter_toxicity=None, model=None):
     """Run systematic test for a single dataset"""
-    print(f"\n{'='*60}")
     print(f"Starting test: {dataset_name}")
     print(f"Max samples: {max_samples}, Variants: {num_variants}")
     if filter_toxicity is not None:
         toxicity_label = "safe" if filter_toxicity == 0 else "unsafe"
         print(f"Toxicity filter: {toxicity_label} samples only")
     print(f"Output directory: {output_dir}")
-    print(f"{'='*60}")
 
     cmd = [
         sys.executable, "systematic_test_jailguard.py",
@@ -115,32 +114,30 @@ def run_systematic_test(dataset_name, max_samples, num_variants, output_dir, thr
         duration = end_time - start_time
         
         if result.returncode == 0:
-            print(f"✅ {dataset_name} completed successfully in {duration:.1f}s")
+            print(f"{dataset_name} completed successfully in {duration:.1f}s")
             return {
                 "status": "success",
                 "duration": duration,
-                # "stdout": result.stdout,  # Commented out to reduce output size
                 "stderr": result.stderr
             }
         else:
-            print(f"❌ {dataset_name} failed with return code {result.returncode}")
+            print(f"{dataset_name} failed with return code {result.returncode}")
             print(f"Error: {result.stderr}")
             return {
                 "status": "failed",
                 "duration": duration,
                 "error": result.stderr,
-                # "stdout": result.stdout  # Commented out to reduce output size
             }
-            
+
     except subprocess.TimeoutExpired:
-        print(f"⏰ {dataset_name} timed out after 1 hour")
+        print(f"{dataset_name} timed out after 1 hour")
         return {
             "status": "timeout",
             "duration": 3600,
             "error": "Test timed out after 1 hour"
         }
     except Exception as e:
-        print(f"💥 {dataset_name} crashed: {e}")
+        print(f"{dataset_name} crashed: {e}")
         return {
             "status": "crashed",
             "duration": time.time() - start_time,
@@ -169,18 +166,10 @@ def load_results_summary(results_file):
         # Extract individual sample results for divergence analysis
         sample_results = data.get('results', [])
         divergence_data = []
-        
-        print(f"      🔍 Found {len(sample_results)} sample results in {results_file}")
-        
-        for i, sample in enumerate(sample_results):
+
+        for sample in sample_results:
             if isinstance(sample, dict) and 'max_divergence' in sample:
                 divergence_data.append(sample['max_divergence'])
-                if i < 5:  # Show first few for debugging
-                    print(f"         Sample {i}: max_divergence = {sample['max_divergence']:.6f}")
-            elif isinstance(sample, dict):
-                print(f"         Sample {i}: no max_divergence field, keys: {list(sample.keys())}")
-        
-        print(f"      📊 Extracted {len(divergence_data)} divergence values")
         
         return basic_metrics, divergence_data
         
@@ -193,70 +182,50 @@ def load_results_summary(results_file):
 def compute_threshold_free_metrics(all_divergences, all_labels):
     """Compute AUROC and AUPRC from divergence scores and ground truth labels"""
     try:
-        print(f"🔍 Computing threshold-free metrics...")
-        print(f"   Safe samples: {len([l for l in all_labels if l == 0])}")
-        print(f"   Unsafe samples: {len([l for l in all_labels if l == 1])}")
-        print(f"   Total samples: {len(all_divergences)}")
-        
         if len(all_divergences) == 0 or len(all_labels) == 0:
-            print(f"   ⚠️  No data available for metrics computation")
             return {"auroc": None, "auprc": None, "error": "No data available"}
-        
+
         if len(set(all_labels)) < 2:
-            print(f"   ⚠️  Only one class present, cannot compute ROC/AUC")
             return {"auroc": None, "auprc": None, "error": "Only one class present"}
-        
+
         # Convert to numpy arrays
         divergences = np.array(all_divergences)
         labels = np.array(all_labels)
-        
-        print(f"   Divergence range: {divergences.min():.6f} to {divergences.max():.6f}")
-        print(f"   Labels: {np.bincount(labels)}")
-        
+
         # Compute AUROC
         auroc = roc_auc_score(labels, divergences)
-        print(f"   ✅ AUROC computed: {auroc:.6f}")
-        
+
         # Compute AUPRC
         auprc = average_precision_score(labels, divergences)
-        print(f"   ✅ AUPRC computed: {auprc:.6f}")
-        
+
         return {
             "auroc": float(auroc),
             "auprc": float(auprc),
             "num_samples": len(divergences),
             "error": None
         }
-        
+
     except Exception as e:
-        print(f"   ❌ Error computing threshold-free metrics: {e}")
-        import traceback
-        traceback.print_exc()
         return {"auroc": None, "auprc": None, "error": str(e)}
 
 def compute_comprehensive_metrics(batch_results):
     """Compute comprehensive metrics including Accuracy, F1, TPR, FPR, AUROC, AUPRC"""
-    print(f"🔍 Computing comprehensive metrics from {len(batch_results)} test results...")
-    
     # Separate safe and unsafe datasets
     safe_results = []
     unsafe_results = []
-    
+
     # Collect all divergence data for threshold-free metrics
     all_safe_divergences = []
     all_unsafe_divergences = []
-    
+
     for test_name, result in batch_results.items():
         if "detailed_results" not in result:
-            print(f"   ⚠️  {test_name}: No detailed results available")
             continue
-            
+
         config = result["config"]
         detailed = result["detailed_results"]
         divergence_data = result.get("divergence_data", [])
-        
-        print(f"   📊 {test_name}: {len(divergence_data)} divergence values, expected toxicity: {config['expected_toxicity']}")
-        
+
         analysis = {
             "test_name": test_name,
             "description": config["description"],
@@ -268,15 +237,13 @@ def compute_comprehensive_metrics(batch_results):
             "max_divergence": detailed.get("max_divergence", 0.0),
             "avg_processing_time": detailed.get("avg_processing_time", 0.0)
         }
-        
+
         if config["expected_toxicity"] == 0:
             safe_results.append(analysis)
             all_safe_divergences.extend(divergence_data)
         else:
             unsafe_results.append(analysis)
             all_unsafe_divergences.extend(divergence_data)
-    
-    print(f"   📈 Collected {len(all_safe_divergences)} safe and {len(all_unsafe_divergences)} unsafe divergence values")
     
     # Calculate metrics
     metrics = {}
@@ -332,38 +299,29 @@ def compute_comprehensive_metrics(batch_results):
         }
     
     # Threshold-free metrics (AUROC, AUPRC)
-    print(f"🔍 Computing threshold-free metrics...")
     if all_safe_divergences and all_unsafe_divergences:
         # Create labels: 0 for safe, 1 for unsafe
         safe_labels = [0] * len(all_safe_divergences)
         unsafe_labels = [1] * len(all_unsafe_divergences)
-        
+
         all_divergences = all_safe_divergences + all_unsafe_divergences
         all_labels = safe_labels + unsafe_labels
-        
-        print(f"   📊 Total divergence values: {len(all_divergences)}")
-        print(f"   📊 Safe labels (0): {len(safe_labels)}")
-        print(f"   📊 Unsafe labels (1): {len(unsafe_labels)}")
-        
+
         threshold_free_metrics = compute_threshold_free_metrics(all_divergences, all_labels)
         metrics["threshold_free"] = threshold_free_metrics
     else:
-        print(f"   ⚠️  Insufficient data for threshold-free metrics:")
-        print(f"      Safe divergences: {len(all_safe_divergences)}")
-        print(f"      Unsafe divergences: {len(all_unsafe_divergences)}")
         metrics["threshold_free"] = {"auroc": None, "auprc": None, "error": "Insufficient data"}
     
     return metrics, safe_results, unsafe_results
 
 def print_comprehensive_summary(batch_results, metrics, safe_results, unsafe_results):
     """Print comprehensive summary with all metrics"""
-    print(f"\n{'='*80}")
-    print(f"🏁 COMPREHENSIVE BATCH TEST SUMMARY")
-    print(f"{'='*80}")
-    
+    print("COMPREHENSIVE BATCH TEST SUMMARY")
+    print("="*50)
+
     if "overall" in metrics:
         overall = metrics["overall"]
-        print(f"📊 OVERALL PERFORMANCE:")
+        print("OVERALL PERFORMANCE:")
         print(f"   Total Samples: {overall['total_samples']}")
         print(f"   Accuracy: {overall['accuracy']:.1%}")
         print(f"   Precision: {overall['precision']:.1%}")
@@ -371,10 +329,10 @@ def print_comprehensive_summary(batch_results, metrics, safe_results, unsafe_res
         print(f"   F1 Score: {overall['f1_score']:.1%}")
         print(f"   True Positive Rate (TPR): {overall['true_positive_rate']:.1%}")
         print(f"   False Positive Rate (FPR): {overall['false_positive_rate']:.1%}")
-    
+
     if "threshold_free" in metrics:
         threshold_free = metrics["threshold_free"]
-        print(f"\n🎯 THRESHOLD-FREE METRICS:")
+        print("\nTHRESHOLD-FREE METRICS:")
         if threshold_free["auroc"] is not None:
             print(f"   AUROC: {threshold_free['auroc']:.4f}")
         else:
@@ -384,61 +342,53 @@ def print_comprehensive_summary(batch_results, metrics, safe_results, unsafe_res
         else:
             print(f"   AUPRC: Not available")
         if threshold_free.get("error"):
-            print(f"   ❌ Error: {threshold_free['error']}")
+            print(f"   Error: {threshold_free['error']}")
         if threshold_free.get("num_samples"):
             print(f"   Total samples for metrics: {threshold_free['num_samples']}")
-        else:
-            print(f"   Total samples for metrics: Not available")
-    
+
     if "safe_datasets" in metrics:
         safe = metrics["safe_datasets"]
-        print(f"\n🛡️  SAFE DATASETS (Should NOT be detected):")
+        print("\nSAFE DATASETS (Should NOT be detected):")
         print(f"   Total samples: {safe['total_samples']}")
         print(f"   False positives: {safe['false_positives']}")
         print(f"   False positive rate: {safe['false_positive_rate']:.1%}")
         print(f"   Specificity: {safe['specificity']:.1%}")
-    
+
     if "unsafe_datasets" in metrics:
         unsafe = metrics["unsafe_datasets"]
-        print(f"\n⚠️  UNSAFE DATASETS (Should BE detected):")
+        print("\nUNSAFE DATASETS (Should BE detected):")
         print(f"   Total samples: {unsafe['total_samples']}")
         print(f"   True positives: {unsafe['true_positives']}")
         print(f"   Detection rate: {unsafe['detection_rate']:.1%}")
         print(f"   Sensitivity: {unsafe['sensitivity']:.1%}")
-    
-    print(f"\n{'='*60}")
-    print(f"DETAILED RESULTS BY DATASET")
-    print(f"{'='*60}")
-    
+
+    print("\nDETAILED RESULTS BY DATASET")
+    print("-"*40)
+
     if safe_results:
-        print(f"\n🛡️  SAFE DATASETS:")
+        print("\nSAFE DATASETS:")
         for result in safe_results:
             print(f"   {result['test_name']:<25} {result['total_samples']:<8} {result['attacks_detected']:<9} {result['detection_rate']:<8.1%}")
-    
+
     if unsafe_results:
-        print(f"\n⚠️  UNSAFE DATASETS:")
+        print("\nUNSAFE DATASETS:")
         for result in unsafe_results:
             print(f"   {result['test_name']:<25} {result['total_samples']:<8} {result['attacks_detected']:<9} {result['detection_rate']:<8.1%}")
 
 def reorganize_existing_summary(batch_dir):
     """Reorganize existing batch summary when resuming"""
-    print(f"🔄 Reorganizing existing batch summary...")
-    
     # Find existing summary file
     summary_file = batch_dir / "batch_summary.json"
     if not summary_file.exists():
-        print(f"⚠️  No existing summary found to reorganize")
         return {}
-    
+
     try:
         with open(summary_file, 'r') as f:
             existing_summary = json.load(f)
-        
+
         # Extract results and reorganize
         batch_results = {}
         for test_name, result in existing_summary.get("results", {}).items():
-            print(f"   🔄 Processing {test_name}...")
-            
             # Check if detailed results exist
             if "detailed_results" in result:
                 # Extract divergence data from results files
@@ -446,35 +396,27 @@ def reorganize_existing_summary(batch_dir):
                 if test_dir.exists():
                     results_files = list(test_dir.glob("results_*.json"))
                     if results_files:
-                        print(f"      📁 Found results file: {results_files[0].name}")
                         detailed_results, divergence_data = load_results_summary(results_files[0])
                         result["detailed_results"] = detailed_results
                         result["divergence_data"] = divergence_data
-                        print(f"      ✅ Loaded {len(divergence_data)} divergence values for {test_name}")
                     else:
-                        print(f"      ⚠️  No results files found in {test_dir}")
                         result["divergence_data"] = []
                 else:
-                    print(f"      ⚠️  Test directory not found: {test_dir}")
                     result["divergence_data"] = []
             else:
-                print(f"      ⚠️  No detailed results in existing summary for {test_name}")
                 result["divergence_data"] = []
-            
+
             batch_results[test_name] = result
-        
+
         return batch_results
-        
+
     except Exception as e:
-        print(f"⚠️  Error reorganizing existing summary: {e}")
-        import traceback
-        traceback.print_exc()
         return {}
 
 def main():
     parser = argparse.ArgumentParser(description="Batch test runner for JailGuard systematic testing")
     parser.add_argument("--num-variants", type=int, default=4, help="Number of variants per sample (default: 3)")
-    parser.add_argument("--threshold", type=float, default=0.025, help="Detection threshold (default: 0.025)")
+    parser.add_argument("--threshold", type=float, default=0.030, help="Detection threshold (optimized default: 0.030)")
     parser.add_argument("--mutator", type=str, default="PL", help="Mutator type (default: PL)")
     parser.add_argument("--output-base-dir", type=str, default="batch_test_results", help="Base output directory")
     parser.add_argument("--safe-only", action="store_true", help="Test only safe datasets")
@@ -515,10 +457,10 @@ def main():
         batch_dir.mkdir(exist_ok=True)
         batch_results = {}
     
-    print(f"🚀 Starting batch test run at {datetime.now()}")
-    print(f"📁 Results will be saved to: {batch_dir}")
-    print(f"🔧 Configuration: {args.num_variants} variants, threshold={args.threshold}, mutator={args.mutator}")
-    
+    print(f"Starting batch test run at {datetime.now()}")
+    print(f"Results will be saved to: {batch_dir}")
+    print(f"Configuration: {args.num_variants} variants, threshold={args.threshold}, mutator={args.mutator}")
+
     # Determine which datasets to test
     datasets_to_test = {}
     if args.safe_only:
@@ -528,8 +470,8 @@ def main():
     else:
         datasets_to_test.update(TEST_CONFIGURATION["safe_datasets"])
         datasets_to_test.update(TEST_CONFIGURATION["unsafe_datasets"])
-    
-    print(f"📊 Testing {len(datasets_to_test)} datasets:")
+
+    print(f"Testing {len(datasets_to_test)} datasets:")
     for name, config in datasets_to_test.items():
         print(f"  - {name}: {config['description']} ({config['max_samples']} samples)")
     
@@ -553,7 +495,7 @@ def main():
                     completed_samples = len(checkpoint_data.get('results', []))
 
                     if completed_samples >= expected_samples:
-                        print(f"⏭️  Skipping {test_name} (completed: {completed_samples}/{expected_samples})")
+                        print(f"Skipping {test_name} (completed: {completed_samples}/{expected_samples})")
                         # Load existing results for skipped tests
                         results_files = list(output_dir.glob("results_*.json"))
                         if results_files:
@@ -567,14 +509,14 @@ def main():
                             }
                         continue
                     else:
-                        print(f"🔄 Resuming {test_name} (completed: {completed_samples}/{expected_samples})")
+                        print(f"Resuming {test_name} (completed: {completed_samples}/{expected_samples})")
                         # Continue to run the test - it will resume from checkpoint
                 except Exception as e:
-                    print(f"⚠️  Could not read checkpoint for {test_name}: {e}")
-                    print(f"🔄 Running {test_name} anyway")
+                    print(f"Could not read checkpoint for {test_name}: {e}")
+                    print(f"Running {test_name} anyway")
             else:
-                print(f"⚠️  No checkpoint found for {test_name}, but directory exists")
-                print(f"🔄 Running {test_name} anyway")
+                print(f"No checkpoint found for {test_name}, but directory exists")
+                print(f"Running {test_name} anyway")
         
         result = run_systematic_test(
             dataset_name=config["dataset_name"],
@@ -602,7 +544,7 @@ def main():
                 batch_results[test_name]["divergence_data"] = divergence_data
     
     total_duration = time.time() - total_start_time
-    
+
     # Save batch results summary
     batch_summary = {
         "batch_info": {
@@ -616,57 +558,50 @@ def main():
         },
         "results": batch_results
     }
-    
+
     summary_file = batch_dir / "batch_summary.json"
     with open(summary_file, 'w') as f:
         json.dump(batch_summary, f, indent=2)
-    
+
     # Print final summary
-    print(f"\n{'='*80}")
-    print(f"🏁 BATCH TEST COMPLETED")
-    print(f"{'='*80}")
-    print(f"⏱️  Total duration: {total_duration/60:.1f} minutes")
-    print(f"📁 Results saved to: {batch_dir}")
-    
+    print("\nBATCH TEST COMPLETED")
+    print("="*50)
+    print(f"Total duration: {total_duration/60:.1f} minutes")
+    print(f"Results saved to: {batch_dir}")
+
     successful_tests = sum(1 for r in batch_results.values() if r["test_result"]["status"] in ["success", "completed"])
     failed_tests = len(batch_results) - successful_tests
-    
-    print(f"✅ Successful tests: {successful_tests}/{len(batch_results)}")
+
+    print(f"Successful tests: {successful_tests}/{len(batch_results)}")
     if failed_tests > 0:
-        print(f"❌ Failed tests: {failed_tests}")
+        print(f"Failed tests: {failed_tests}")
         for name, result in batch_results.items():
             if result["test_result"]["status"] not in ["success", "completed"]:
                 print(f"   - {name}: {result['test_result']['status']}")
-    
+
     # Compute and display comprehensive metrics
     if batch_results:
-        print(f"\n{'='*80}")
-        print(f"📊 COMPUTING COMPREHENSIVE METRICS...")
-        print(f"{'='*80}")
-        
+        print("\nCOMPUTING COMPREHENSIVE METRICS...")
+        print("="*40)
+
         try:
             metrics, safe_results, unsafe_results = compute_comprehensive_metrics(batch_results)
-            
+
             if metrics:
                 print_comprehensive_summary(batch_results, metrics, safe_results, unsafe_results)
             else:
-                print("⚠️  No detailed results available for metric computation")
+                print("No detailed results available for metric computation")
         except Exception as e:
-            print(f"❌ Error computing comprehensive metrics: {e}")
-            import traceback
-            traceback.print_exc()
-            print("⚠️  Continuing without comprehensive metrics...")
-    
-    print(f"\n📊 Summary saved to: {summary_file}")
+            print(f"Error computing comprehensive metrics: {e}")
+            print("Continuing without comprehensive metrics...")
+    print(f"\nSummary saved to: {summary_file}")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n⚠️  Batch test interrupted by user")
+        print("\nBatch test interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n💥 Fatal error in batch test runner: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"\nFatal error in batch test runner: {e}")
         sys.exit(1)
