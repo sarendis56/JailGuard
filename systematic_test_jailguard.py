@@ -380,13 +380,31 @@ class JailGuardTester:
 
         print(f"Processing text-only sample {sample_id}...")
 
-        # Clear any existing model from memory to avoid conflicts
-        if hasattr(self, 'model') and self.model is not None:
-            del self.model
-            del self.vis_processor
-            del self.chat
-            import torch
-            torch.cuda.empty_cache()
+        # Import model utilities first (needed for both cases)
+        sys.path.append('./JailGuard/utils')
+        try:
+            from unified_model_utils import initialize_model, model_inference
+        except ImportError:
+            # Fallback to original MiniGPT-4 utilities
+            from minigpt_utils import initialize_model, model_inference
+
+        # Use the already initialized model from initialize_models()
+        if not hasattr(self, 'model') or self.model is None:
+            print("Warning: Model not initialized, falling back to per-sample initialization")
+            # Only initialize if not already done
+            # Change to JailGuard directory for proper initialization
+            original_cwd = os.getcwd()
+            jailguard_dir = os.path.join(original_cwd, 'JailGuard')
+            os.chdir(jailguard_dir)
+
+            try:
+                self.vis_processor, self.chat, self.model = initialize_model(model_type=self.config.model)
+                print("✓ Model initialized for this sample")
+            finally:
+                # Change back to original directory
+                os.chdir(original_cwd)
+        else:
+            print("✓ Using pre-initialized model")
 
         try:
             # Step 1: Generate text variants using JailGuard's text mutation logic (like main_txt.py)
@@ -636,24 +654,24 @@ class JailGuardTester:
             # Step 2: Get responses using multimodal model with blank images (keep current approach)
             response_dir.mkdir(parents=True, exist_ok=True)
 
-            # Initialize multimodal model (use unified interface)
-            sys.path.append('./JailGuard/utils')
-            try:
-                from unified_model_utils import initialize_model, model_inference
-            except ImportError:
-                # Fallback to original MiniGPT-4 utilities
-                from minigpt_utils import initialize_model, model_inference
+            # Use the already initialized model instead of re-initializing
+            if hasattr(self, 'model') and self.model is not None:
+                vis_processor, chat, model = self.vis_processor, self.chat, self.model
+                print("✓ Using pre-initialized model for inference")
+            else:
+                # Fallback to per-sample initialization if needed
+                # Note: model_inference is already imported above
+                # Change to JailGuard directory for proper initialization
+                original_cwd = os.getcwd()
+                jailguard_dir = os.path.join(original_cwd, 'JailGuard')
+                os.chdir(jailguard_dir)
 
-            # Change to JailGuard directory for proper initialization
-            original_cwd = os.getcwd()
-            jailguard_dir = os.path.join(original_cwd, 'JailGuard')
-            os.chdir(jailguard_dir)
-
-            try:
-                vis_processor, chat, model = initialize_model(model_type=self.config.model)
-            finally:
-                # Change back to original directory
-                os.chdir(original_cwd)
+                try:
+                    vis_processor, chat, model = initialize_model(model_type=self.config.model)
+                    print("✓ Model initialized for this sample (fallback)")
+                finally:
+                    # Change back to original directory
+                    os.chdir(original_cwd)
 
             # Create a temporary blank image file for all variants
             from PIL import Image
@@ -784,13 +802,11 @@ class JailGuardTester:
 
         print(f"Processing sample {sample_id}...")
 
-        # Clear any existing model from memory to avoid conflicts
-        if hasattr(self, 'model') and self.model is not None:
-            del self.model
-            del self.vis_processor
-            del self.chat
-            import torch
-            torch.cuda.empty_cache()
+        # Use the already initialized model from initialize_models()
+        if not hasattr(self, 'model') or self.model is None:
+            print("Warning: Model not initialized, falling back to per-sample initialization")
+        else:
+            print("✓ Using pre-initialized model")
 
         try:
             # Create a temporary dataset structure that main_img.py expects
