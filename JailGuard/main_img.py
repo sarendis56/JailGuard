@@ -41,8 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('--response_save_dir', default='./demo_case/response', type=str, help='dir to save the modify results')
     parser.add_argument('--number', default='8', type=str, help='number of generated variants')
     parser.add_argument('--threshold', default=0.025, type=float, help='Threshold of divergence')
-    parser.add_argument('--model', default=None, type=str, choices=['minigpt4', 'llava'],
-                       help='Model to use: minigpt4 or llava (default: from config)')
+    parser.add_argument('--model', default=None, type=str, choices=['minigpt4', 'llava', 'qwen'],
+                       help='Model to use: minigpt4, llava, or qwen (default: from config)')
     args = parser.parse_args()
 
     number=int(args.number)

@@ -415,15 +415,15 @@ def reorganize_existing_summary(batch_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Batch test runner for JailGuard systematic testing")
-    parser.add_argument("--num-variants", type=int, default=4, help="Number of variants per sample (default: 3)")
+    parser.add_argument("--num-variants", type=int, default=4, help="Number of variants per sample (default: 4)")
     parser.add_argument("--threshold", type=float, default=0.030, help="Detection threshold (optimized default: 0.030)")
     parser.add_argument("--mutator", type=str, default="PL", help="Mutator type (default: PL)")
     parser.add_argument("--output-base-dir", type=str, default="batch_test_results", help="Base output directory")
     parser.add_argument("--safe-only", action="store_true", help="Test only safe datasets")
     parser.add_argument("--unsafe-only", action="store_true", help="Test only unsafe datasets")
     parser.add_argument("--resume", action="store_true", help="Resume from existing results")
-    parser.add_argument("--model", type=str, default=None, choices=['minigpt4', 'llava'],
-                       help="Model to use: minigpt4 or llava (default: from config)")
+    parser.add_argument("--model", type=str, default='llava', choices=['minigpt4', 'llava', 'qwen'],
+                       help="Model to use: minigpt4, llava, or qwen (default: llava)")
 
     args = parser.parse_args()
     
@@ -487,7 +487,6 @@ def main():
             checkpoint_files = list(output_dir.glob("checkpoint_*.json"))
             if checkpoint_files:
                 try:
-                    import json
                     with open(checkpoint_files[0], 'r') as f:
                         checkpoint_data = json.load(f)
 

@@ -8,6 +8,7 @@ existing JailGuard code.
 
 import os
 import sys
+import torch
 from typing import Tuple, Any, Optional, Dict
 
 def get_config():
@@ -59,19 +60,17 @@ def get_available_models() -> Dict[str, bool]:
     
     # Check LLaVA
     try:
-        llava_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'LLaVA')
-        if os.path.exists(llava_path):
-            sys.path.insert(0, llava_path)
-            from llava.model.builder import load_pretrained_model
-            available['llava'] = True
-        else:
-            available['llava'] = False
+        from llava_utils import initialize_model as llava_init
+        available['llava'] = True
     except ImportError:
         available['llava'] = False
-    finally:
-        # Clean up sys.path
-        if 'llava_path' in locals() and llava_path in sys.path:
-            sys.path.remove(llava_path)
+    
+    # Check Qwen
+    try:
+        from qwen_utils import initialize_model as qwen_init
+        available['qwen'] = True
+    except ImportError:
+        available['qwen'] = False
     
     return available
 
@@ -119,6 +118,8 @@ def initialize_model(model_type: Optional[str] = None, **kwargs) -> Tuple[Any, A
         return _initialize_minigpt4(config, **kwargs)
     elif model_type == 'llava':
         return _initialize_llava(config, **kwargs)
+    elif model_type == 'qwen':
+        return _initialize_qwen(config, **kwargs)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
@@ -147,13 +148,20 @@ def model_inference(vis_processor: Any, chat: Any, model: Any, prompts_eval: lis
         return _inference_minigpt4(vis_processor, chat, model, prompts_eval)
     elif model_type == 'llava':
         return _inference_llava(vis_processor, chat, model, prompts_eval)
+    elif model_type == 'qwen':
+        return _inference_qwen(vis_processor, chat, model, prompts_eval)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
 def _detect_model_type(chat: Any) -> str:
     """Auto-detect model type from chat object"""
+    # Check if it's Qwen wrapper (more specific check first)
+    if hasattr(chat, 'processor') and hasattr(chat, 'tokenizer') and hasattr(chat, 'model'):
+        # Additional check: if it has a processor attribute, it's likely Qwen
+        if hasattr(chat.processor, 'apply_chat_template'):
+            return 'qwen'
     # Check if it's LLaVA wrapper
-    if hasattr(chat, 'tokenizer') and hasattr(chat, 'conv_template'):
+    if hasattr(chat, 'tokenizer') and hasattr(chat, 'conv_template') and chat.conv_template is not None:
         return 'llava'
     # Otherwise assume MiniGPT-4
     else:
@@ -217,6 +225,38 @@ def _inference_llava(vis_processor: Any, chat: Any, model: Any, prompts_eval: li
         return llava_inference(vis_processor, chat, model, prompts_eval)
     except ImportError as e:
         raise RuntimeError(f"LLaVA not available: {e}")
+
+def _initialize_qwen(config, **kwargs) -> Tuple[Any, Any, Any]:
+    """Initialize Qwen model"""
+    try:
+        # Try different import paths
+        try:
+            from qwen_utils import initialize_model as qwen_init
+        except ImportError:
+            from utils.qwen_utils import initialize_model as qwen_init
+
+        # Use configuration values, but allow kwargs to override
+        qwen_kwargs = {
+            'device': os.environ.get('QWEN_DEVICE', 'cuda'),
+            'torch_dtype': torch.float16,
+            'trust_remote_code': True
+        }
+        qwen_kwargs.update(kwargs)
+
+        return qwen_init(**qwen_kwargs)
+    except ImportError as e:
+        raise RuntimeError(f"Qwen not available: {e}")
+
+def _inference_qwen(vis_processor: Any, chat: Any, model: Any, prompts_eval: list) -> str:
+    """Perform Qwen inference"""
+    try:
+        try:
+            from qwen_utils import model_inference as qwen_inference
+        except ImportError:
+            from utils.qwen_utils import model_inference as qwen_inference
+        return qwen_inference(vis_processor, chat, model, prompts_eval)
+    except ImportError as e:
+        raise RuntimeError(f"Qwen not available: {e}")
 
 def print_model_info():
     """Print information about available models and current configuration"""

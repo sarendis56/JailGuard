@@ -42,11 +42,33 @@ def load_dirs(dir):
                 with open(path, 'rb') as f:#input,bug type,params
                     line_list = pickle.load(f)
             else:
-                f=open(path,'r')
-                line_list=f.readlines()
-                f.close()
-            output_list.append(line_list)
-            name_list.append(name)
+                # Try different encodings to handle various file types
+                line_list = None
+                for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        with open(path, 'r', encoding=encoding) as f:
+                            line_list = f.readlines()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e:
+                        print(f"Warning: Error reading {path} with {encoding}: {e}")
+                        continue
+                
+                # If all encodings fail, try reading as binary and decode with errors='replace'
+                if line_list is None:
+                    try:
+                        with open(path, 'rb') as f:
+                            content = f.read()
+                        # Try to decode with error replacement
+                        line_list = [content.decode('utf-8', errors='replace')]
+                    except Exception as e:
+                        print(f"Warning: Could not read {path}: {e}")
+                        line_list = [f"Error reading file: {path}"]
+            
+            if line_list is not None:
+                output_list.append(line_list)
+                name_list.append(name)
     return output_list, name_list
 
 def load_mask_dir(dir):

@@ -12,6 +12,7 @@ torchaudio==2.1.1
 torchdata==0.7.1
 torchtext==0.16.1
 torchvision==0.16.1
-peft=0.4.0
-accelerate=0.20.3
+peft==0.4.0
+accelerate==0.20.3
 pyarrow
+tqdm

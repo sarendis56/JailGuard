@@ -625,23 +625,14 @@ class JailGuardTester:
                     # Change back to original directory
                     os.chdir(original_cwd)
 
-            # Create a temporary blank image file for all variants
-            from PIL import Image
-            import tempfile
-            blank_img = Image.new('RGB', (224, 224), color='white')
-            temp_img_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
-            blank_img.save(temp_img_file.name, 'JPEG')
-            temp_img_path = temp_img_file.name
-            temp_img_file.close()
-
             responses = []
             successful_responses = 0
 
             for i, variant_text in enumerate(text_variants):
                 try:
-                    # Use MiniGPT-4 to get response
-                    prompts_eval = [variant_text, temp_img_path]  # [question, image_path]
-                    response = model_inference(vis_processor, chat, model, prompts_eval)
+                    # Use text-only inference (no image)
+                    prompts_eval = [variant_text, None]  # [question, image_path] - None for text-only
+                    response = model_inference(vis_processor, chat, model, prompts_eval, model_type=self.config.model)
 
                     # Validate response
                     if not response or not response.strip():
@@ -662,12 +653,6 @@ class JailGuardTester:
             # Validate that we got responses for all variants
             if successful_responses != len(text_variants):
                 raise RuntimeError(f"Expected {len(text_variants)} responses, but only got {successful_responses}")
-
-            # Clean up temporary image file
-            try:
-                os.unlink(temp_img_path)
-            except:
-                pass
 
             # Calculate divergence and use detection system
             sys.path.append('./JailGuard/utils')
@@ -1254,8 +1239,8 @@ Examples:
     parser.add_argument('--no-checkpoint', action='store_true', help='Disable checkpoint saving')
 
     # Model options
-    parser.add_argument('--model', type=str, default=None, choices=['minigpt4', 'llava'],
-                       help='Model to use: minigpt4 or llava (default: from config)')
+    parser.add_argument('--model', type=str, default=None, choices=['minigpt4', 'llava', 'qwen'],
+                       help='Model to use: minigpt4 or llava or qwen (default: from config)')
 
     args = parser.parse_args()
 

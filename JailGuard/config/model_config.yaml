@@ -1,8 +1,8 @@
 # JailGuard Model Configuration
 # This file configures which multimodal model to use and model-specific settings
 
-# Default model to use: 'minigpt4' or 'llava'
-default_model: 'minigpt4'
+# Default model to use: 'minigpt4', 'llava', or 'qwen'
+default_model: 'llava'
 
 # MiniGPT-4 Configuration
 minigpt4:
@@ -24,7 +24,7 @@ llava:
   conv_mode: null
   
   # Quantization options (enable to reduce memory usage)
-  load_8bit: true
+  load_8bit: false
   load_4bit: false
   
   # Device to use
@@ -35,15 +35,36 @@ llava:
   max_new_tokens: 300
   do_sample: false
 
+# Qwen Configuration
+qwen:
+  # Model path - can be a HuggingFace model name or local path (null = auto-detect)
+  model_path: null
+  
+  # Device to use
+  device: 'cuda'
+  
+  # Torch dtype for model loading
+  torch_dtype: 'float16'
+  
+  # Trust remote code (required for Qwen models)
+  trust_remote_code: true
+  
+  # Generation parameters
+  max_new_tokens: 512
+  temperature: 0.7
+  top_p: 0.8
+  do_sample: true
+
 # Environment variable overrides
 # You can override these settings using environment variables:
-# - JAILGUARD_MODEL: 'minigpt4' or 'llava'
+# - JAILGUARD_MODEL: 'minigpt4', 'llava', or 'qwen'
 # - LLAVA_MODEL_PATH: path to LLaVA model
 # - LLAVA_MODEL_BASE: base model for LoRA
 # - LLAVA_CONV_MODE: conversation mode
 # - LLAVA_LOAD_8BIT: 'true' or 'false'
 # - LLAVA_LOAD_4BIT: 'true' or 'false'
 # - LLAVA_DEVICE: device to use
+# - QWEN_DEVICE: device to use for Qwen
 
 # Model fallback behavior
 # If the specified model is not available, the system will:
@@ -54,5 +75,7 @@ llava:
 # Performance notes:
 # - MiniGPT-4: Generally faster initialization, established in JailGuard
 # - LLaVA: More recent architecture, potentially better performance
+# - Qwen: State-of-the-art multimodal model, excellent performance on both text and vision
 # - 8-bit/4-bit quantization: Reduces memory usage but may affect quality
 # - Temperature 1.0: Deterministic generation for consistent results
+# - Qwen uses sampling by default for more diverse responses

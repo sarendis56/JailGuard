@@ -14,6 +14,14 @@ import spacy
 import openai
 import copy
 
+# Import unified model utilities for multi-model support
+try:
+    from unified_model_utils import initialize_model, model_inference
+    print("✓ Using unified model interface (supports MiniGPT-4, LLaVA, and Qwen)")
+except ImportError:
+    # Fallback to original utilities
+    print("✓ Using original text processing interface")
+
 def get_method(method_name): 
     try:
         method = text_aug_dict[method_name]
@@ -32,6 +40,8 @@ if __name__ == '__main__':
     parser.add_argument('--response_save_dir', default='./demo_case/response', type=str, help='dir to save the modify results')
     parser.add_argument('--number', default='8', type=str, help='number of generated variants')
     parser.add_argument('--threshold', default=0.02, type=str, help='Threshold of divergence')
+    parser.add_argument('--model', default=None, type=str, choices=['minigpt4', 'llava', 'qwen'],
+                       help='Model to use: minigpt4, llava, or qwen (default: from config)')
     args = parser.parse_args()
 
     number=int(args.number)
@@ -89,6 +99,20 @@ if __name__ == '__main__':
     except:
         pass
     name_list, variant_list = (list(t) for t in zip(*sorted(zip(name_list,variant_list))))
+
+    # Initialize model if specified
+    vis_processor = None
+    chat = None
+    model = None
+    if args.model is not None:
+        try:
+            vis_processor, chat, model = initialize_model(model_type=args.model)
+            print(f"✓ Initialized {args.model.upper()} model for text processing")
+        except Exception as e:
+            print(f"✗ Failed to initialize {args.model} model: {e}")
+            print("Falling back to GPT-3.5-turbo")
+            args.model = None
+
     for j in range(len(variant_list)):
         prompt=variant_list[j]
         messages=None
@@ -102,10 +126,18 @@ if __name__ == '__main__':
         new_save_path=os.path.join(new_save_dir,save_name)
         if not os.path.exists(new_save_path):
             try:
-                param={}
-                if 'Parameters' in key_list[0]:
-                    param=key_list[1]
-                res_content = query_gpt('gpt-3.5-turbo-1106',prompt,sleep=3,messages=messages,param=param)#TODO: make sure you have add your API key in this ./utils/config
+                if args.model is not None and model is not None:
+                    # Use unified model interface for specified model
+                    # For text-only models, we pass the prompt as both question and image_path
+                    # The model_inference function will handle text-only processing
+                    prompts_eval = [prompt, None]  # [question, image_path] format
+                    res_content = model_inference(vis_processor, chat, model, prompts_eval)
+                else:
+                    # Use original GPT-3.5-turbo interface
+                    param={}
+                    if 'Parameters' in key_list[0]:
+                        param=key_list[1]
+                    res_content = query_gpt('gpt-3.5-turbo-1106',prompt,sleep=3,messages=messages,param=param)
             except openai.BadRequestError: # handle refusal
                 res_content='I cannot assist with that!'
                 print(f'Blocked in {new_save_path}')
