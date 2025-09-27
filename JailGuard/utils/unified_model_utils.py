@@ -35,7 +35,7 @@ def _get_fallback_config():
                 'load_4bit': os.environ.get('LLAVA_LOAD_4BIT', 'false').lower() == 'true',
                 'device': os.environ.get('LLAVA_DEVICE', 'cuda'),
                 'temperature': float(os.environ.get('LLAVA_TEMPERATURE', '1.0')),
-                'max_new_tokens': int(os.environ.get('LLAVA_MAX_NEW_TOKENS', '300')),
+                'max_new_tokens': int(os.environ.get('LLAVA_MAX_NEW_TOKENS', '150')),
                 'do_sample': os.environ.get('LLAVA_DO_SAMPLE', 'false').lower() == 'true'
             }
 

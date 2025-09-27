@@ -270,7 +270,7 @@ def model_inference(vis_processor: Any, chat: Any, model: Any, prompts_eval: lis
         with torch.no_grad():
             generated_ids = model.generate(
                 **inputs,
-                max_new_tokens=512,
+                max_new_tokens=150,  # Reduced for faster generation in jailbreak detection
                 do_sample=True,
                 temperature=0.7,
                 top_p=0.8,

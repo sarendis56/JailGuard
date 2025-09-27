@@ -228,7 +228,7 @@ def model_inference(vis_processor: Any, chat: Any, model: Any, prompts_eval: lis
                 temperature=0.2,  # Lower temperature for more focused responses
                 top_p=None,
                 num_beams=1,
-                max_new_tokens=256,  # Reduce max tokens to save memory
+                max_new_tokens=150,  # Reduced for faster generation in jailbreak detection
                 use_cache=True,
                 pad_token_id=chat.tokenizer.eos_token_id,
                 eos_token_id=chat.tokenizer.eos_token_id,

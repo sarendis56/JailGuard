@@ -150,7 +150,7 @@ def model_inference(vis_processor,chat,model,prompts_eval):
                                 img_list=img_list,
                                 num_beams=num_beams,
                                 temperature=temperature,
-                                max_new_tokens=300,
+                                max_new_tokens=150,  # Reduced for faster generation in jailbreak detection
                                 max_length=2000)[0]
 
         return llm_message, chat_state, img_list

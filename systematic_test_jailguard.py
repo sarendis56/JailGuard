@@ -711,7 +711,7 @@ class JailGuardTester:
 
     def _test_multimodal_sample(self, sample: Dict[str, Any], sample_id: str,
                                variant_dir: Path, response_dir: Path) -> TestResult:
-        """Test a multimodal sample using EXACT same logic as main_img.py by calling it as subprocess"""
+        """Test a multimodal sample using direct model inference (no subprocess)"""
 
         text = sample.get('txt', '')
         img_path = sample.get('img', '')
@@ -726,88 +726,99 @@ class JailGuardTester:
         if not os.path.exists(img_path):
             raise ValueError(f"Sample image not found: {img_path}")
 
-
-
         try:
-            # Create a temporary dataset structure that main_img.py expects
-            temp_dataset_dir = variant_dir.parent / "temp_dataset"
-            temp_sample_dir = temp_dataset_dir / sample_id
-            temp_sample_dir.mkdir(parents=True, exist_ok=True)
+            # Step 1: Generate image variants using JailGuard's image mutation logic
+            if not JAILGUARD_UTILS_AVAILABLE:
+                raise RuntimeError("JailGuard utilities not available for image processing")
 
-            # main_img.py expects image.bmp or image.jpg (NOT image.png)
-            temp_img_path = temp_sample_dir / "image.jpg"
-
+            # Import image augmentation methods
+            from JailGuard.utils.augmentations import img_aug_dict
+            from JailGuard.utils.utils import load_mask_dir
             from PIL import Image
-            with Image.open(img_path) as img:
-                # Convert to RGB and save as JPG (main_img.py expects this format)
-                img_rgb = img.convert('RGB')
-                img_rgb.save(temp_img_path, 'JPEG', quality=95)
+            import shutil
 
-            # Save question to expected location
-            temp_question_path = temp_sample_dir / "question"
-            with open(temp_question_path, 'w', encoding='utf-8') as f:
+            # Get the mutation method
+            method = img_aug_dict[self.config.mutator]
+            
+            # Generate variants
+            variant_list = []
+            name_list = []
+            
+            for i in range(self.config.num_variants):
+                # Apply mutation to original image
+                pil_img = Image.open(img_path)
+                new_image = method(img=pil_img)
+                
+                # Save variant
+                variant_filename = f"{i}-{self.config.mutator}.jpg"
+                variant_path = variant_dir / variant_filename
+                new_image.save(variant_path, 'JPEG', quality=95)
+                
+                variant_list.append(str(variant_path))
+                name_list.append(variant_filename)
+            
+            # Save question to variant directory
+            question_path = variant_dir / "question"
+            with open(question_path, 'w', encoding='utf-8') as f:
                 f.write(text)
 
-            # Call main_img.py with the exact same logic
-            import subprocess
-            cmd = [
-                sys.executable, "main_img.py",
-                "--serial_num", sample_id,
-                "--path", str(temp_dataset_dir),
-                "--variant_save_dir", str(variant_dir),
-                "--response_save_dir", str(response_dir),
-                "--number", str(self.config.num_variants),
-                "--threshold", str(self.config.threshold),
-                "--mutator", self.config.mutator
-            ]
+            # Step 2: Generate responses using the already-loaded model
+            if not MULTIMODAL_AVAILABLE:
+                raise RuntimeError("Multimodal utilities not available")
 
-            # Change to JailGuard directory and run
-            original_cwd = os.getcwd()
-            jailguard_dir = os.path.join(original_cwd, 'JailGuard')
+            # Initialize model if not already done
+            if not hasattr(self, 'vis_processor') or self.vis_processor is None:
+                self.vis_processor, self.chat, self.model = initialize_model(model_type=self.config.model)
 
-            result = subprocess.run(
-                cmd,
-                cwd=jailguard_dir,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
+            responses = []
+            successful_responses = 0
+
+            for i, variant_path in enumerate(variant_list):
+                try:
+                    # Use multimodal inference
+                    prompts_eval = [text, variant_path]  # [question, image_path]
+                    response = model_inference(self.vis_processor, self.chat, self.model, prompts_eval, model_type=self.config.model)
+
+                    # Validate response
+                    if not response or not response.strip():
+                        raise ValueError(f"Empty response received for variant {i+1}")
+
+                    # Save response
+                    response_filename = f"{i}-{self.config.mutator}"
+                    response_path = response_dir / response_filename
+                    with open(response_path, 'w', encoding='utf-8') as f:
+                        f.write(response)
+
+                    responses.append(response)
+                    successful_responses += 1
+
+                except Exception as e:
+                    raise RuntimeError(f"Response generation failed for variant {i+1}: {e}")
+
+            # Validate that we got responses for all variants
+            if successful_responses != self.config.num_variants:
+                raise RuntimeError(f"Expected {self.config.num_variants} responses, but only got {successful_responses}")
+
+            # Step 3: Calculate divergence and use detection system
+            if not SPACY_AVAILABLE:
+                raise RuntimeError("SpaCy not available for divergence calculation")
+
+            from JailGuard.utils.utils import update_divergence, enhanced_detect_attack
+            import spacy
+
+            metric = spacy.load("en_core_web_md")
+            
+            # Calculate divergence
+            max_div, jailbreak_keywords = update_divergence(
+                responses, 
+                sample_id, 
+                str(response_dir), 
+                select_number=self.config.num_variants, 
+                metric=metric
             )
 
-            if result.returncode != 0:
-                raise RuntimeError(f"main_img.py failed with return code {result.returncode}: {result.stderr}")
-
-            # Parse the output to get detection result
-            detection_result = "Attack Query" in result.stdout
-
-            # Read the generated responses to calculate metrics
-            responses = []
-            if response_dir.exists():
-                for response_file in response_dir.glob("*"):
-                    if (response_file.is_file() and
-                        not response_file.name.startswith("diver_result-") and
-                        not response_file.suffix.lower() in ['.png', '.jpg', '.jpeg', '.bmp', '.pkl']):
-                        try:
-                            with open(response_file, 'r', encoding='utf-8') as f:
-                                responses.append(f.read())
-                        except UnicodeDecodeError:
-                            print(f"Warning: Could not decode file {response_file} as UTF-8, skipping")
-                            continue
-
-            # Extract divergence info from pickle files saved by main_img.py
-            max_div = 0.0
-            jailbreak_keywords = []
-
-            # Look for divergence results pickle file
-            divergence_files = list(response_dir.glob("diver_result-*.pkl"))
-            if divergence_files:
-                try:
-                    import pickle
-                    with open(divergence_files[0], 'rb') as f:
-                        divergence_data = pickle.load(f)
-                    max_div = divergence_data.get('max_divergence', 0.0)
-                    jailbreak_keywords = divergence_data.get('jailbreak_keywords', [])
-                except Exception as e:
-                    print(f"Warning: Could not load divergence data: {e}")
+            # Use enhanced detection system
+            detection_result = enhanced_detect_attack(max_div, jailbreak_keywords, self.config.threshold)
 
             # Count variants and responses
             num_variants = len(list(variant_dir.glob("*-*.jpg"))) + len(list(variant_dir.glob("*-*.bmp")))
@@ -828,10 +839,6 @@ class JailGuardTester:
         except Exception as e:
             print(f"Error in multimodal test: {e}")
             raise
-        finally:
-            # Clean up temp dataset
-            if 'temp_dataset_dir' in locals() and temp_dataset_dir.exists():
-                shutil.rmtree(temp_dataset_dir, ignore_errors=True)
 
 
 

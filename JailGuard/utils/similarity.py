@@ -53,8 +53,25 @@ def kl_divergence(p, q):
 
 def get_similarity(s1,s2,method='spacy',misc=None):
     if method=='spacy':
-        doc1 = misc(s1)
-        doc2 = misc(s2)
+        # Handle empty or very short text that would cause spaCy to produce empty vectors
+        s1_clean = s1.strip() if s1 else ""
+        s2_clean = s2.strip() if s2 else ""
+        
+        # If either text is empty or too short, return a default similarity score
+        if len(s1_clean) < 3 or len(s2_clean) < 3:
+            # Log the issue for debugging
+            print(f"Warning: Empty or very short text detected - s1: '{s1_clean[:50]}...', s2: '{s2_clean[:50]}...'")
+            # Return 0.0 for empty/short text comparisons (no similarity)
+            return 0.0
+        
+        doc1 = misc(s1_clean)
+        doc2 = misc(s2_clean)
+        
+        # Check if either document has no meaningful tokens
+        if len(doc1) == 0 or len(doc2) == 0:
+            print(f"Warning: spaCy produced empty document - doc1 tokens: {len(doc1)}, doc2 tokens: {len(doc2)}")
+            return 0.0
+            
         similarity_score = doc1.similarity(doc2)
     elif method=='transformer':
         # misc: [tokenizer,model]

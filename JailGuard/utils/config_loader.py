@@ -49,7 +49,7 @@ class ModelConfig:
                 'load_4bit': False,
                 'device': 'cuda',
                 'temperature': 1.0,
-                'max_new_tokens': 300,
+                'max_new_tokens': 150,  # Reduced for faster generation in jailbreak detection
                 'do_sample': False
             }
         }
@@ -87,7 +87,7 @@ class ModelConfig:
                 'load_4bit': False,
                 'device': 'cuda',
                 'temperature': 1.0,
-                'max_new_tokens': 300,
+                'max_new_tokens': 150,  # Reduced for faster generation in jailbreak detection
                 'do_sample': False
             }
         }

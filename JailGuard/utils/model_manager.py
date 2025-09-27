@@ -265,7 +265,7 @@ class LLaVAInterface(BaseModelInterface):
                     image_sizes=[image_size],
                     do_sample=False,  # Use deterministic generation for consistency
                     temperature=1.0,
-                    max_new_tokens=300,  # Match MiniGPT-4 settings
+                    max_new_tokens=150,  # Reduced for faster generation in jailbreak detection
                     use_cache=True
                 )
 
